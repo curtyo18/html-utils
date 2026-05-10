@@ -219,6 +219,38 @@
     return out;
   }
 
+  function formatRelative(ms) {
+    const diff = ms - Date.now();
+    const abs = Math.abs(diff);
+    const sec = Math.round(abs / 1000);
+    const min = Math.round(sec / 60);
+    const hr  = Math.round(min / 60);
+    const day = Math.round(hr / 24);
+    const yr  = Math.round(day / 365);
+    let val, unit;
+    if (sec < 60)        { val = sec; unit = 'second'; }
+    else if (min < 60)   { val = min; unit = 'minute'; }
+    else if (hr < 48)    { val = hr;  unit = 'hour'; }
+    else if (day < 365)  { val = day; unit = 'day'; }
+    else                 { val = yr;  unit = 'year'; }
+    const plural = val === 1 ? '' : 's';
+    return diff < 0 ? `${val} ${unit}${plural} ago` : `${val} ${unit}${plural} from now`;
+  }
+
+  function renderBytes(label, bytes, printable) {
+    const hex = bytesToHex(bytes);
+    const text = printable ? bytesToText(bytes) : null;
+    lastCopyText = text || hex;
+    const textBlock = text ? `<div class="dec-section">
+      <div class="dec-section-head">decoded text (${bytes.length} bytes)</div>
+      <div class="dec-section-body">${escapeHtml(text)}</div>
+    </div>` : '';
+    return `${textBlock}<div class="dec-section">
+      <div class="dec-section-head">bytes (hex, ${bytes.length})</div>
+      <div class="dec-section-body dec-bytes">${hex}</div>
+    </div>`;
+  }
+
   // ---------- detectors ----------
   // Each: function(input) -> { score, label, render } | null
   // render() returns string | Promise<string>; sets lastCopyText for the copy button.
@@ -419,8 +451,146 @@
     };
   }
 
+  function detectTimestamp(input) {
+    const t = input.trim();
+    if (!/^\d{9,13}$/.test(t)) return null;
+    const n = Number(t);
+    if (!Number.isFinite(n)) return null;
+    const isMs = t.length >= 12;
+    const ms = isMs ? n : n * 1000;
+    const d = new Date(ms);
+    const year = d.getUTCFullYear();
+    if (year < 1970 || year > 2100) return null;
+    return {
+      score: 0.7,
+      label: 'Unix timestamp',
+      render: () => {
+        const lines = [
+          ['unit',     isMs ? 'milliseconds' : 'seconds'],
+          ['UTC',      d.toISOString()],
+          ['local',    d.toString()],
+          ['relative', formatRelative(ms)],
+        ];
+        lastCopyText = lines.map(([k, v]) => `${k}: ${v}`).join('\n');
+        const rows = lines.map(([k, v]) =>
+          `<span class="k">${k}</span><span class="v">${escapeHtml(v)}</span>`
+        ).join('');
+        return `<div class="dec-section">
+          <div class="dec-section-head">Unix timestamp</div>
+          <div class="dec-section-body"><div class="dec-kv">${rows}</div></div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectHex(input) {
+    const t = input.trim().replace(/\s+/g, '');
+    if (!/^[0-9a-fA-F]+$/.test(t)) return null;
+    if (t.length < 4 || t.length % 2 !== 0) return null;
+    const bytes = new Uint8Array(t.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(t.substr(i * 2, 2), 16);
+    }
+    let score = 0.5;
+    const printable = isPrintableBytes(bytes);
+    if (printable) score += 0.2;
+    return {
+      score,
+      label: 'hex',
+      render: () => renderBytes('hex', bytes, printable),
+    };
+  }
+
+  function detectBase64(input) {
+    const t = input.trim().replace(/\s+/g, '');
+    const isStandard = /^[A-Za-z0-9+/]+=*$/.test(t);
+    const isUrlVariant = /^[A-Za-z0-9_-]+=*$/.test(t) && /[-_]/.test(t);
+    if (!isStandard && !isUrlVariant) return null;
+    if (t.length < 4) return null;
+    if (t.length % 4 === 1) return null;
+    let bytes;
+    try { bytes = decodeBase64Url(t); } catch { return null; }
+    let score = 0.55;
+    const printable = isPrintableBytes(bytes);
+    if (printable) score += 0.2;
+    if (t.length < 8) score -= 0.2;
+    const label = isUrlVariant ? 'base64url' : 'base64';
+    return {
+      score,
+      label,
+      render: () => renderBytes(label, bytes, printable),
+    };
+  }
+
+  function detectBase32(input) {
+    const t = input.trim().replace(/\s+/g, '').toUpperCase();
+    if (!/^[A-Z2-7]+=*$/.test(t)) return null;
+    if (t.length < 8) return null;
+    if (![0, 2, 4, 5, 7].includes(t.length % 8)) return null;
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const cleaned = t.replace(/=+$/, '');
+    let bits = '';
+    for (const c of cleaned) {
+      const idx = alphabet.indexOf(c);
+      if (idx < 0) return null;
+      bits += idx.toString(2).padStart(5, '0');
+    }
+    const byteCount = Math.floor(bits.length / 8);
+    const bytes = new Uint8Array(byteCount);
+    for (let i = 0; i < byteCount; i++) {
+      bytes[i] = parseInt(bits.substr(i * 8, 8), 2);
+    }
+    let score = 0.5;
+    const printable = isPrintableBytes(bytes);
+    if (printable) score += 0.2;
+    return {
+      score,
+      label: 'base32',
+      render: () => renderBytes('base32', bytes, printable),
+    };
+  }
+
+  function detectGzip(input) {
+    const t = input.trim().replace(/\s+/g, '');
+    let bytes = null;
+    if (/^[A-Za-z0-9+/_=-]+$/.test(t) && t.length >= 8) {
+      try { bytes = decodeBase64Url(t); } catch {}
+    } else if (/^[0-9a-fA-F]+$/.test(t) && t.length % 2 === 0 && t.length >= 6) {
+      bytes = new Uint8Array(t.length / 2);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(t.substr(i * 2, 2), 16);
+    }
+    if (!bytes || bytes.length < 3 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return null;
+    return {
+      score: 0.85,
+      label: 'gzip',
+      render: async () => {
+        let decompressed;
+        try {
+          const ds = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          writer.write(bytes);
+          writer.close();
+          const buf = await new Response(ds.readable).arrayBuffer();
+          decompressed = bytesToText(new Uint8Array(buf));
+        } catch (e) {
+          lastCopyText = '';
+          return `<div class="dec-empty">gzip decompress failed: ${escapeHtml(e.message || String(e))}</div>`;
+        }
+        lastCopyText = decompressed;
+        return `<div class="dec-section">
+          <div class="dec-section-head">gzip-decompressed (${decompressed.length} chars)</div>
+          <div class="dec-section-body">${escapeHtml(decompressed)}</div>
+        </div>`;
+      },
+    };
+  }
+
   // Registry — T01 has only ROT13. Subsequent tasks append.
-  const detectors = [detectJwt, detectJson, detectUri, detectUrlEncoded, detectHtmlEntities, detectQueryString, detectRot13];
+  const detectors = [
+    detectJwt, detectJson, detectUri, detectGzip,
+    detectUrlEncoded, detectHtmlEntities, detectQueryString,
+    detectTimestamp, detectBase64, detectHex, detectBase32, detectRot13,
+  ];
 
   // ---------- engine ----------
   function detect(text) {
