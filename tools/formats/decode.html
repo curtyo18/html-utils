@@ -6,16 +6,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../../shared.css">
 <style>
-  /* layout */
+  /* layout: wide viewports get a 2-column split (input | output) with chips
+     spanning across the top; narrow viewports stack vertically below. */
   .layout {
     flex: 1;
     display: grid;
-    grid-template-rows: auto auto 1fr;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "chips chips"
+      "input decoded";
     gap: 1px;
     background: var(--border);
     min-height: 0;
   }
-  .input-pane .pane-body { height: 180px; }
+  .layout > .chips { grid-area: chips; }
+  .layout > .input-pane { grid-area: input; }
+  .layout > .decoded { grid-area: decoded; }
+
+  @media (max-width: 760px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto 1fr;
+      grid-template-areas:
+        "input"
+        "chips"
+        "decoded";
+    }
+    .input-pane .pane-body { height: 180px; }
+  }
 
   /* chip row */
   .chips {
@@ -125,7 +144,7 @@
     <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
     <div class="crumb">
       <a href="../../index.html">home</a><span class="sep">/</span>
-      <span>encoding</span><span class="sep">/</span>
+      <span>formats</span><span class="sep">/</span>
       <span class="current">decode</span>
     </div>
     <div class="spacer"></div>
@@ -153,7 +172,7 @@
 
       <div class="chips" id="chips"></div>
 
-      <section class="pane">
+      <section class="pane decoded">
         <div class="pane-head">
           <span class="pane-title">decoded</span>
           <span class="pane-stat" id="stat-output"></span>
