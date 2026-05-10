@@ -75,10 +75,13 @@
   .diff-table td.left, .diff-table td.right { width: calc(50% - 40px); }
   .diff-table tr.add td.right { background: var(--add-bg); }
   .diff-table tr.add td.marker.right-m { color: var(--add); }
+  .diff-table tr.add.empty td.left { background: var(--bg-1); }
   .diff-table tr.del td.left { background: var(--del-bg); }
   .diff-table tr.del td.marker.left-m { color: var(--del); }
+  .diff-table tr.del.empty td.right { background: var(--bg-1); }
   .diff-table tr.eq td { color: var(--text-dim); }
-  .diff-table tr.empty td.left, .diff-table tr.empty td.right { background: var(--bg-1); }
+  .diff-table .char-del { background: var(--del); color: #1a0808; }
+  .diff-table .char-add { background: var(--add); color: #081a08; }
 
   .diff-empty {
     padding: 30px 20px;
@@ -123,6 +126,29 @@
     transform: rotate(45deg);
   }
   .toolbar .opt:hover { color: var(--text); }
+
+  /* editable pane titles for custom names */
+  .pane-title-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    width: auto;
+    min-width: 80px;
+  }
+  .pane-title-input::placeholder { color: var(--text-faint); }
+  .pane-title-input:focus { color: var(--accent); }
+
+  /* diff-pane head context: shows nameA → nameB when names are set */
+  .diff-context {
+    margin-left: 8px;
+    color: var(--text-faint);
+  }
 </style>
 </head>
 <body>
@@ -147,6 +173,7 @@
     <span style="width:1px;height:18px;background:var(--border);margin:0 6px;"></span>
     <label class="opt"><input type="checkbox" id="opt-ws">ignore whitespace</label>
     <label class="opt"><input type="checkbox" id="opt-case">ignore case</label>
+    <label class="opt"><input type="checkbox" id="opt-char">char-level</label>
     <div class="spacer"></div>
     <button class="btn ghost" id="btn-swap" title="swap A and B">⇅ swap</button>
     <button class="btn ghost" id="btn-clear">clear</button>
@@ -158,7 +185,7 @@
       <div class="inputs">
         <section class="pane">
           <div class="pane-head">
-            <span class="pane-title">A · original</span>
+            <input type="text" class="pane-title pane-title-input" id="name-a" spellcheck="false" autocomplete="off" placeholder="A · original">
             <span class="pane-stat" id="stat-a">0 lines</span>
           </div>
           <div class="pane-body">
@@ -167,7 +194,7 @@
         </section>
         <section class="pane">
           <div class="pane-head">
-            <span class="pane-title">B · changed</span>
+            <input type="text" class="pane-title pane-title-input" id="name-b" spellcheck="false" autocomplete="off" placeholder="B · changed">
             <span class="pane-stat" id="stat-b">0 lines</span>
           </div>
           <div class="pane-body">
@@ -179,6 +206,7 @@
       <section class="pane">
         <div class="pane-head">
           <span class="pane-title">diff</span>
+          <span class="diff-context" id="diff-context"></span>
           <span class="pane-stat" id="stat-diff">side-by-side</span>
         </div>
         <div class="diff-view" id="diff-view">
@@ -195,42 +223,35 @@
 (() => {
   const A = document.getElementById('input-a');
   const B = document.getElementById('input-b');
+  const nameA = document.getElementById('name-a');
+  const nameB = document.getElementById('name-b');
   const statA = document.getElementById('stat-a');
   const statB = document.getElementById('stat-b');
   const statAdd = document.getElementById('stat-add');
   const statDel = document.getElementById('stat-del');
   const statSame = document.getElementById('stat-same');
   const statDiff = document.getElementById('stat-diff');
+  const diffContext = document.getElementById('diff-context');
   const view = document.getElementById('diff-view');
   const optWs = document.getElementById('opt-ws');
   const optCase = document.getElementById('opt-case');
+  const optChar = document.getElementById('opt-char');
   const btnShare = document.getElementById('btn-share');
   const btnSwap = document.getElementById('btn-swap');
   const btnClear = document.getElementById('btn-clear');
   const toast = document.getElementById('toast');
 
   const STORAGE_KEY = 'html-utils:diff';
+  const SEP = '';
 
-  // ---------- LCS-based line diff ----------
-  function normalize(s) {
-    let v = s;
-    if (optWs.checked) v = v.replace(/\s+/g, ' ').trim();
-    if (optCase.checked) v = v.toLowerCase();
-    return v;
-  }
-
-  function diffLines(aLines, bLines) {
-    const n = aLines.length, m = bLines.length;
-    const an = aLines.map(normalize);
-    const bn = bLines.map(normalize);
-
-    // LCS length table
-    // Use Uint32Array for speed on larger inputs
+  // ---------- LCS ops over arrays ----------
+  function lcsOps(a, b, eq) {
+    const n = a.length, m = b.length;
     const w = m + 1;
     const dp = new Uint32Array((n + 1) * w);
     for (let i = n - 1; i >= 0; i--) {
       for (let j = m - 1; j >= 0; j--) {
-        if (an[i] === bn[j]) {
+        if (eq(a[i], b[j])) {
           dp[i * w + j] = dp[(i + 1) * w + (j + 1)] + 1;
         } else {
           const d = dp[(i + 1) * w + j];
@@ -239,25 +260,35 @@
         }
       }
     }
-
-    // walk
     const out = [];
     let i = 0, j = 0;
     while (i < n && j < m) {
-      if (an[i] === bn[j]) {
-        out.push({ t: 'eq', a: aLines[i], b: bLines[j] });
-        i++; j++;
-      } else if (dp[(i + 1) * w + j] >= dp[i * w + (j + 1)]) {
-        out.push({ t: 'del', a: aLines[i], b: null });
-        i++;
-      } else {
-        out.push({ t: 'add', a: null, b: bLines[j] });
-        j++;
-      }
+      if (eq(a[i], b[j]))                                       { out.push({ t: 'eq',  i, j }); i++; j++; }
+      else if (dp[(i + 1) * w + j] >= dp[i * w + (j + 1)])      { out.push({ t: 'del', i });    i++; }
+      else                                                      { out.push({ t: 'add', j });    j++; }
     }
-    while (i < n) { out.push({ t: 'del', a: aLines[i++], b: null }); }
-    while (j < m) { out.push({ t: 'add', a: null, b: bLines[j++] }); }
+    while (i < n) { out.push({ t: 'del', i: i++ }); }
+    while (j < m) { out.push({ t: 'add', j: j++ }); }
     return out;
+  }
+
+  // ---------- line-level diff ----------
+  function normalize(s) {
+    let v = s;
+    if (optWs.checked) v = v.replace(/\s+/g, ' ').trim();
+    if (optCase.checked) v = v.toLowerCase();
+    return v;
+  }
+
+  function diffLines(aLines, bLines) {
+    const an = aLines.map(normalize);
+    const bn = bLines.map(normalize);
+    const ops = lcsOps(an, bn, (x, y) => x === y);
+    return ops.map(op => {
+      if (op.t === 'eq')  return { t: 'eq',  a: aLines[op.i], b: bLines[op.j] };
+      if (op.t === 'del') return { t: 'del', a: aLines[op.i], b: null };
+      return                      { t: 'add', a: null,        b: bLines[op.j] };
+    });
   }
 
   // Group consecutive add/del so we can pair them visually (side-by-side replace)
@@ -266,7 +297,6 @@
     let i = 0;
     while (i < rows.length) {
       if (rows[i].t === 'del') {
-        // collect consecutive dels then consecutive adds
         const dels = [];
         while (i < rows.length && rows[i].t === 'del') { dels.push(rows[i++]); }
         const adds = [];
@@ -274,18 +304,41 @@
         const len = Math.max(dels.length, adds.length);
         for (let k = 0; k < len; k++) {
           const d = dels[k], ad = adds[k];
-          if (d && ad) out.push({ t: 'mod', a: d.a, b: ad.b });
+          if (d && ad)  out.push({ t: 'mod', a: d.a, b: ad.b });
           else if (d)   out.push({ t: 'del', a: d.a, b: null });
           else          out.push({ t: 'add', a: null, b: ad.b });
         }
       } else if (rows[i].t === 'add') {
-        // pure add block (no preceding dels) -> add rows
         while (i < rows.length && rows[i].t === 'add') { out.push(rows[i++]); }
       } else {
         out.push(rows[i++]);
       }
     }
     return out;
+  }
+
+  // ---------- intra-line diff for mod rows ----------
+  function tokenize(s, mode) {
+    if (mode === 'char') return [...s];
+    return s.match(/\w+|\s+|[^\w\s]/g) || [];
+  }
+
+  function intraLineRender(a, b, mode) {
+    const aTok = tokenize(a, mode);
+    const bTok = tokenize(b, mode);
+    const ops = lcsOps(aTok, bTok, (x, y) => x === y);
+    let leftHtml = '', rightHtml = '';
+    for (const op of ops) {
+      if (op.t === 'eq') {
+        leftHtml  += escapeHtml(aTok[op.i]);
+        rightHtml += escapeHtml(bTok[op.j]);
+      } else if (op.t === 'del') {
+        leftHtml  += `<span class="char-del">${escapeHtml(aTok[op.i])}</span>`;
+      } else {
+        rightHtml += `<span class="char-add">${escapeHtml(bTok[op.j])}</span>`;
+      }
+    }
+    return { leftHtml, rightHtml };
   }
 
   function renderDiff(aText, bText) {
@@ -301,6 +354,7 @@
 
     const raw = diffLines(aLines, bLines);
     const rows = pair(raw);
+    const mode = optChar.checked ? 'char' : 'word';
 
     let adds = 0, dels = 0, same = 0;
 
@@ -311,46 +365,47 @@
 
     for (const r of rows) {
       const tr = document.createElement('tr');
-      let cls = 'eq', leftMark = ' ', rightMark = ' ', leftTxt = '', rightTxt = '';
+      let cls = 'eq', leftMark = ' ', rightMark = ' ', leftHtml = '', rightHtml = '';
       let lnALabel = '', lnBLabel = '';
       if (r.t === 'eq') {
         lnA++; lnB++;
         same++;
         cls = 'eq';
-        leftTxt = r.a; rightTxt = r.b;
+        leftHtml  = escapeHtml(r.a);
+        rightHtml = escapeHtml(r.b);
         lnALabel = lnA; lnBLabel = lnB;
       } else if (r.t === 'add') {
         lnB++;
         adds++;
         cls = 'add empty';
         rightMark = '+';
-        rightTxt = r.b;
-        leftTxt = '';
+        rightHtml = escapeHtml(r.b);
         lnBLabel = lnB;
       } else if (r.t === 'del') {
         lnA++;
         dels++;
         cls = 'del empty';
         leftMark = '−';
-        leftTxt = r.a;
-        rightTxt = '';
+        leftHtml = escapeHtml(r.a);
         lnALabel = lnA;
       } else if (r.t === 'mod') {
         lnA++; lnB++;
         adds++; dels++;
         cls = 'add del';
         leftMark = '−'; rightMark = '+';
-        leftTxt = r.a; rightTxt = r.b;
+        const intra = intraLineRender(r.a, r.b, mode);
+        leftHtml  = intra.leftHtml;
+        rightHtml = intra.rightHtml;
         lnALabel = lnA; lnBLabel = lnB;
       }
       tr.className = cls;
       tr.innerHTML = `
         <td class="gutter">${lnALabel}</td>
         <td class="marker left-m">${leftMark}</td>
-        <td class="left">${escapeHtml(leftTxt)}</td>
+        <td class="left">${leftHtml}</td>
         <td class="gutter">${lnBLabel}</td>
         <td class="marker right-m">${rightMark}</td>
-        <td class="right">${escapeHtml(rightTxt)}</td>
+        <td class="right">${rightHtml}</td>
       `;
       frag.appendChild(tr);
     }
@@ -368,6 +423,12 @@
     return (s ?? '').replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
   }
 
+  function updateContextLabel() {
+    const a = nameA.value.trim();
+    const b = nameB.value.trim();
+    diffContext.textContent = (a || b) ? `${a || 'A'} → ${b || 'B'}` : '';
+  }
+
   // ---------- update loop ----------
   let _t;
   function schedule() {
@@ -378,25 +439,35 @@
     const a = A.value, b = B.value;
     statA.textContent = `${a ? a.split(/\r?\n/).length : 0} lines · ${a.length} chars`;
     statB.textContent = `${b ? b.split(/\r?\n/).length : 0} lines · ${b.length} chars`;
+    updateContextLabel();
     renderDiff(a, b);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        a, b, ws: optWs.checked, case: optCase.checked,
+        a, b,
+        aName: nameA.value, bName: nameB.value,
+        ws: optWs.checked, case: optCase.checked, char: optChar.checked,
       }));
     } catch {}
   }
 
   A.addEventListener('input', schedule);
   B.addEventListener('input', schedule);
+  nameA.addEventListener('input', update);
+  nameB.addEventListener('input', update);
   optWs.addEventListener('change', update);
   optCase.addEventListener('change', update);
+  optChar.addEventListener('change', update);
 
   btnSwap.addEventListener('click', () => {
-    const t = A.value; A.value = B.value; B.value = t;
+    const tT = A.value; A.value = B.value; B.value = tT;
+    const tN = nameA.value; nameA.value = nameB.value; nameB.value = tN;
     update();
   });
   btnClear.addEventListener('click', () => {
-    A.value = ''; B.value = ''; update(); A.focus();
+    A.value = ''; B.value = '';
+    nameA.value = ''; nameB.value = '';
+    update();
+    A.focus();
   });
 
   function showToast(msg) {
@@ -407,6 +478,8 @@
   }
 
   // ---------- share link with gzip + base64url ----------
+  // payload is JSON: { a, b, aName, bName }
+  // legacy format (raw text: a +  + b) is still accepted on decode
   async function gzipBase64(text) {
     const cs = new CompressionStream('gzip');
     const writer = cs.writable.getWriter();
@@ -438,17 +511,37 @@
     return bytes;
   }
 
+  function decodePayload(text) {
+    if (text.length && text.charCodeAt(0) === 123 /* '{' */) {
+      try {
+        const obj = JSON.parse(text);
+        return {
+          a:     typeof obj.a === 'string'     ? obj.a     : '',
+          b:     typeof obj.b === 'string'     ? obj.b     : '',
+          aName: typeof obj.aName === 'string' ? obj.aName : '',
+          bName: typeof obj.bName === 'string' ? obj.bName : '',
+        };
+      } catch { /* fall through to legacy SEP format */ }
+    }
+    const idx = text.indexOf(SEP);
+    if (idx >= 0) {
+      return { a: text.slice(0, idx), b: text.slice(idx + 1), aName: '', bName: '' };
+    }
+    return { a: text, b: '', aName: '', bName: '' };
+  }
+
   btnShare.addEventListener('click', async () => {
     try {
-      // Use a tab character as a delimiter — unlikely in pasted text
-      // Fall back to using a sentinel that's escaped
-      const SEP = '\u0001';
-      const payload = (A.value || '') + SEP + (B.value || '');
+      const payload = JSON.stringify({
+        a: A.value || '',
+        b: B.value || '',
+        aName: nameA.value || '',
+        bName: nameB.value || '',
+      });
       const enc = await gzipBase64(payload);
       const url = location.origin + location.pathname + '#d=' + enc;
       await navigator.clipboard.writeText(url);
-      const sz = url.length;
-      showToast(`share link copied · ${sz} chars`);
+      showToast(`share link copied · ${url.length} chars`);
       history.replaceState(null, '', '#d=' + enc);
     } catch (e) {
       console.error(e);
@@ -462,25 +555,27 @@
     const m = hash.match(/^#d=(.+)$/);
     if (m) {
       try {
-        const SEP = '\u0001';
         const text = await gunzipBase64(m[1]);
-        const idx = text.indexOf(SEP);
-        if (idx >= 0) {
-          A.value = text.slice(0, idx);
-          B.value = text.slice(idx + 1);
-          update();
-          return;
-        }
+        const data = decodePayload(text);
+        A.value = data.a;
+        B.value = data.b;
+        nameA.value = data.aName;
+        nameB.value = data.bName;
+        update();
+        return;
       } catch (e) {
         console.warn('failed to decode share link', e);
       }
     }
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-      if (saved.a) A.value = saved.a;
-      if (saved.b) B.value = saved.b;
+      if (typeof saved.a === 'string') A.value = saved.a;
+      if (typeof saved.b === 'string') B.value = saved.b;
+      if (typeof saved.aName === 'string') nameA.value = saved.aName;
+      if (typeof saved.bName === 'string') nameB.value = saved.bName;
       if (typeof saved.ws === 'boolean') optWs.checked = saved.ws;
       if (typeof saved.case === 'boolean') optCase.checked = saved.case;
+      if (typeof saved.char === 'boolean') optChar.checked = saved.char;
     } catch {}
     update();
   }
