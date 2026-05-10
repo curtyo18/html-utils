@@ -210,6 +210,15 @@
     return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(' ');
   }
 
+  function decodeBase64Url(s) {
+    let str = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    const bin = atob(str);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
   // ---------- detectors ----------
   // Each: function(input) -> { score, label, render } | null
   // render() returns string | Promise<string>; sets lastCopyText for the copy button.
@@ -233,8 +242,122 @@
     };
   }
 
+  function detectJson(input) {
+    const t = input.trim();
+    if (!t) return null;
+    if (!/^[\[{"]|^(true|false|null|-?\d)/.test(t)) return null;
+    let parsed;
+    try { parsed = JSON.parse(t); } catch { return null; }
+    return {
+      score: 0.95,
+      label: 'JSON',
+      render: () => {
+        const pretty = JSON.stringify(parsed, null, 2);
+        lastCopyText = pretty;
+        return `<div class="dec-section">
+          <div class="dec-section-head">JSON</div>
+          <div class="dec-section-body">${escapeHtml(pretty)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectJwt(input) {
+    const t = input.trim();
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) return null;
+    const [hSeg, pSeg, sSeg] = t.split('.');
+    let header, payload, sigBytes;
+    try {
+      header = JSON.parse(bytesToText(decodeBase64Url(hSeg)));
+      if (!header || typeof header !== 'object' || !header.alg) return null;
+      payload = JSON.parse(bytesToText(decodeBase64Url(pSeg)));
+      sigBytes = decodeBase64Url(sSeg);
+    } catch {
+      return null;
+    }
+    return {
+      score: 0.95,
+      label: 'JWT',
+      render: () => {
+        const headerStr = JSON.stringify(header, null, 2);
+        const payloadStr = JSON.stringify(payload, null, 2);
+        const knownClaims = ['iss', 'sub', 'aud', 'exp', 'iat', 'nbf', 'jti'];
+        const dateClaims = new Set(['exp', 'iat', 'nbf']);
+        const claimRows = knownClaims
+          .filter(k => payload && k in payload)
+          .map(k => {
+            const v = payload[k];
+            let display = escapeHtml(JSON.stringify(v));
+            if (dateClaims.has(k) && typeof v === 'number') {
+              const d = new Date(v * 1000);
+              display += `<span class="extra">${escapeHtml(d.toISOString())}</span>`;
+            }
+            return `<span class="k">${escapeHtml(k)}</span><span class="v">${display}</span>`;
+          }).join('');
+        const claimsBlock = claimRows ? `<div class="dec-section">
+          <div class="dec-section-head">claims</div>
+          <div class="dec-section-body"><div class="dec-kv">${claimRows}</div></div>
+        </div>` : '';
+        lastCopyText =
+          `HEADER\n${headerStr}\n\nPAYLOAD\n${payloadStr}\n\nSIGNATURE (${sigBytes.length} bytes)\n${bytesToHex(sigBytes)}`;
+        return `<div class="dec-section">
+          <div class="dec-section-head">header</div>
+          <div class="dec-section-body">${escapeHtml(headerStr)}</div>
+        </div>
+        <div class="dec-section">
+          <div class="dec-section-head">payload</div>
+          <div class="dec-section-body">${escapeHtml(payloadStr)}</div>
+        </div>
+        ${claimsBlock}
+        <div class="dec-section">
+          <div class="dec-section-head">signature (${sigBytes.length} bytes)</div>
+          <div class="dec-section-body dec-bytes">${bytesToHex(sigBytes)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectUri(input) {
+    const t = input.trim();
+    if (!/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(t)) return null;
+    let url;
+    try { url = new URL(t); } catch { return null; }
+    return {
+      score: 0.9,
+      label: 'URI',
+      render: () => {
+        const params = [...url.searchParams.entries()];
+        const parts = [
+          ['scheme',   url.protocol.replace(/:$/, '')],
+          ['host',     url.hostname],
+          ['port',     url.port || '(default)'],
+          ['path',     url.pathname],
+          ['query',    url.search || '(none)'],
+          ['hash',     url.hash || '(none)'],
+        ];
+        if (url.username) parts.push(['username', url.username]);
+        if (url.password) parts.push(['password', '(set)']);
+        const partsRows = parts.map(([k, v]) =>
+          `<span class="k">${k}</span><span class="v">${escapeHtml(v)}</span>`
+        ).join('');
+        const queryBlock = params.length ? `<div class="dec-section">
+          <div class="dec-section-head">query parameters (${params.length})</div>
+          <div class="dec-section-body"><div class="dec-kv">${
+            params.map(([k, v]) => `<span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span>`).join('')
+          }</div></div>
+        </div>` : '';
+        lastCopyText = parts.map(([k, v]) => `${k}: ${v}`).join('\n')
+          + (params.length ? '\n\nQUERY\n' + params.map(([k, v]) => `${k}: ${v}`).join('\n') : '');
+        return `<div class="dec-section">
+          <div class="dec-section-head">URI</div>
+          <div class="dec-section-body"><div class="dec-kv">${partsRows}</div></div>
+        </div>${queryBlock}`;
+      },
+    };
+  }
+
   // Registry — T01 has only ROT13. Subsequent tasks append.
-  const detectors = [detectRot13];
+  const detectors = [detectJwt, detectJson, detectUri, detectRot13];
 
   // ---------- engine ----------
   function detect(text) {
