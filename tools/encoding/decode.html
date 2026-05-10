@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>decode · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  /* layout */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  .input-pane .pane-body { height: 180px; }
+
+  /* chip row */
+  .chips {
+    display: flex;
+    gap: 6px;
+    padding: 8px 14px;
+    flex-wrap: wrap;
+    background: var(--bg-1);
+    align-items: center;
+    min-height: 36px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 3px 9px;
+    cursor: pointer;
+    transition: color 120ms, border-color 120ms, background 120ms;
+    user-select: none;
+  }
+  .chip:hover { color: var(--text); border-color: var(--border-strong); }
+  .chip.selected {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--bg-1);
+  }
+  .chip-score {
+    color: var(--text-faint);
+    margin-left: 6px;
+    font-size: 10px;
+  }
+  .chip.selected .chip-score { color: var(--accent-dim); }
+  .chips-empty {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  /* output pane */
+  .output-pane {
+    overflow: auto;
+    background: var(--bg);
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  .dec-empty {
+    text-align: center;
+    color: var(--text-faint);
+    padding: 30px 18px;
+    font-size: 12px;
+  }
+  .dec-section {
+    margin: 0 0 16px;
+  }
+  .dec-section:last-child { margin-bottom: 0; }
+  .dec-section-head {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0 0 6px;
+  }
+  .dec-section-body {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 10px 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .dec-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .dec-kv .k { color: var(--text-faint); }
+  .dec-kv .v { color: var(--text); word-break: break-all; }
+  .dec-kv .v .extra { color: var(--text-faint); margin-left: 8px; }
+  .dec-bytes {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    word-break: break-all;
+  }
+
+  .toolbar .status {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .toolbar .status .fmt { color: var(--accent); }
+  .toolbar .status .score { color: var(--text-faint); margin-left: 6px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>encoding</span><span class="sep">/</span>
+      <span class="current">decode</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste · auto-detect</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="status" id="status">no input</span>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-copy">copy</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <section class="pane input-pane">
+        <div class="pane-head">
+          <span class="pane-title">input</span>
+          <span class="pane-stat" id="stat-input">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false" placeholder="Paste anything: a JWT, base64, hex, JSON, URL, …"></textarea>
+        </div>
+      </section>
+
+      <div class="chips" id="chips"></div>
+
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">decoded</span>
+          <span class="pane-stat" id="stat-output"></span>
+        </div>
+        <div class="output-pane" id="output">
+          <div class="dec-empty">Paste a string to decode.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">copied to clipboard</div>
+
+<script>
+(() => {
+  const inputEl    = document.getElementById('input');
+  const statusEl   = document.getElementById('status');
+  const statInput  = document.getElementById('stat-input');
+  const statOutput = document.getElementById('stat-output');
+  const chipsEl    = document.getElementById('chips');
+  const outputEl   = document.getElementById('output');
+  const btnClear   = document.getElementById('btn-clear');
+  const btnCopy    = document.getElementById('btn-copy');
+  const toast      = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:decode';
+
+  let override = null;
+  let lastCopyText = '';
+  let renderToken = 0;
+
+  // ---------- helpers ----------
+  function escapeHtml(s) {
+    return (s ?? '').toString().replace(/[&<>"']/g, c => (
+      { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]
+    ));
+  }
+
+  function isPrintableBytes(bytes) {
+    if (!bytes.length) return false;
+    let printable = 0;
+    for (const b of bytes) {
+      if (b === 9 || b === 10 || b === 13 || (b >= 32 && b <= 126) || b >= 128) printable++;
+    }
+    return printable / bytes.length > 0.85;
+  }
+
+  function bytesToText(bytes) {
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  }
+
+  function bytesToHex(bytes) {
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(' ');
+  }
+
+  // ---------- detectors ----------
+  // Each: function(input) -> { score, label, render } | null
+  // render() returns string | Promise<string>; sets lastCopyText for the copy button.
+
+  function detectRot13(input) {
+    if (!/[a-zA-Z]/.test(input)) return null;
+    return {
+      score: 0.3,
+      label: 'ROT13',
+      render: () => {
+        const out = input.replace(/[a-zA-Z]/g, c => {
+          const base = c <= 'Z' ? 65 : 97;
+          return String.fromCharCode((c.charCodeAt(0) - base + 13) % 26 + base);
+        });
+        lastCopyText = out;
+        return `<div class="dec-section">
+          <div class="dec-section-head">ROT13</div>
+          <div class="dec-section-body">${escapeHtml(out)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  // Registry — T01 has only ROT13. Subsequent tasks append.
+  const detectors = [detectRot13];
+
+  // ---------- engine ----------
+  function detect(text) {
+    if (!text) return [];
+    const cands = [];
+    for (const fn of detectors) {
+      try {
+        const c = fn(text);
+        if (c && c.score > 0) cands.push(c);
+      } catch (e) { /* detector throw → ignore */ }
+    }
+    cands.sort((a, b) => b.score - a.score);
+    return cands.slice(0, 6);
+  }
+
+  function chooseSelected(cands) {
+    if (override) {
+      const m = cands.find(c => c.label === override);
+      if (m) return m;
+      override = null;
+    }
+    return cands[0];
+  }
+
+  async function render() {
+    const myToken = ++renderToken;
+    const text = inputEl.value;
+    statInput.textContent = `${text.length} chars`;
+    persist();
+
+    if (!text) {
+      statusEl.textContent = 'no input';
+      chipsEl.innerHTML = '';
+      outputEl.innerHTML = '<div class="dec-empty">Paste a string to decode.</div>';
+      statOutput.textContent = '';
+      lastCopyText = '';
+      return;
+    }
+
+    const cands = detect(text.trim());
+    if (cands.length === 0) {
+      statusEl.textContent = 'no recognized format';
+      chipsEl.innerHTML = '<span class="chips-empty">no candidates</span>';
+      outputEl.innerHTML = '<div class="dec-empty">Couldn’t recognize this format.</div>';
+      statOutput.textContent = '';
+      lastCopyText = '';
+      return;
+    }
+
+    const selected = chooseSelected(cands);
+
+    chipsEl.innerHTML = '';
+    for (const c of cands) {
+      const el = document.createElement('button');
+      el.className = 'chip' + (c === selected ? ' selected' : '');
+      el.innerHTML = `${escapeHtml(c.label)}<span class="chip-score">${c.score.toFixed(2)}</span>`;
+      el.addEventListener('click', () => {
+        override = c.label;
+        render();
+      });
+      chipsEl.appendChild(el);
+    }
+
+    statusEl.innerHTML = override
+      ? `manual: <span class="fmt">${escapeHtml(selected.label)}</span><span class="score">${selected.score.toFixed(2)}</span>`
+      : `auto-detected: <span class="fmt">${escapeHtml(selected.label)}</span><span class="score">${selected.score.toFixed(2)}</span>`;
+    statOutput.textContent = `${cands.length} candidate${cands.length === 1 ? '' : 's'}`;
+
+    let html;
+    try {
+      html = await selected.render();
+    } catch (e) {
+      console.error('render failed', e);
+      html = `<div class="dec-empty">Decode failed: ${escapeHtml(e.message || String(e))}</div>`;
+      lastCopyText = '';
+    }
+    if (myToken !== renderToken) return;
+    outputEl.innerHTML = html;
+  }
+
+  // ---------- persistence ----------
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        input: inputEl.value,
+        override,
+      }));
+    } catch {}
+  }
+  function restore() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (typeof saved.input === 'string') inputEl.value = saved.input;
+      if (typeof saved.override === 'string') override = saved.override;
+    } catch {}
+  }
+
+  // ---------- update loop ----------
+  let _t;
+  function schedule() {
+    clearTimeout(_t);
+    _t = setTimeout(render, 80);
+  }
+  inputEl.addEventListener('input', () => {
+    override = null;
+    schedule();
+  });
+
+  btnClear.addEventListener('click', () => {
+    inputEl.value = '';
+    override = null;
+    render();
+    inputEl.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  btnCopy.addEventListener('click', async () => {
+    if (!lastCopyText) {
+      showToast('nothing to copy');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(lastCopyText);
+      showToast(`copied · ${lastCopyText.length} chars`);
+    } catch {
+      showToast('copy failed');
+    }
+  });
+
+  restore();
+  render();
+})();
+</script>
+</body>
+</html>
