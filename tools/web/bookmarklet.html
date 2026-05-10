@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>bookmarklet · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  /* 2-column on wide viewports, stacked on narrow */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
+    grid-template-areas: "input output";
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  .layout > .input-pane  { grid-area: input; }
+  .layout > .output-pane { grid-area: output; }
+
+  @media (max-width: 760px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        "input"
+        "output";
+    }
+    .input-pane .pane-body { height: 200px; }
+  }
+
+  /* toolbar: name field + char counter */
+  .name-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 6px;
+  }
+  .name-input {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    outline: none;
+    width: 240px;
+    transition: border-color 120ms;
+  }
+  .name-input:focus { border-color: var(--border-strong); }
+  .name-input::placeholder { color: var(--text-faint); }
+  .toolbar .url-len {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: 14px;
+  }
+
+  /* output pane content */
+  .output-body {
+    flex: 1;
+    overflow: auto;
+    padding: 18px 22px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    background: var(--bg);
+  }
+  .drag-hint {
+    color: var(--text-faint);
+    font-size: 12px;
+    margin: 0 0 10px;
+  }
+  .drag-pill {
+    display: inline-block;
+    background: var(--bg-1);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 6px 16px;
+    text-decoration: none;
+    cursor: grab;
+    user-select: none;
+    transition: background 120ms, border-color 120ms;
+  }
+  .drag-pill:hover { background: var(--bg-2); }
+  .drag-pill:active { cursor: grabbing; }
+  .drag-pill::before { content: "↳ "; color: var(--accent-dim); }
+  .drag-pill.inert {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--border);
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+  .drag-pill.inert::before { color: var(--text-faint); }
+
+  .url-block { margin-top: 22px; }
+  .url-block-head {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0 0 6px;
+  }
+  .url-block-body {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 10px 14px;
+    word-break: break-all;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .url-block-body.empty {
+    color: var(--text-faint);
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>web</span><span class="sep">/</span>
+      <span class="current">bookmarklet</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste JS · drag to bookmark bar</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="name-label">name</span>
+    <input type="text" class="name-input" id="name" spellcheck="false" autocomplete="off" placeholder="(bookmarklet name)">
+    <span class="url-len" id="url-len">0 chars</span>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-copy">copy URL</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <section class="pane input-pane">
+        <div class="pane-head">
+          <span class="pane-title">JavaScript</span>
+          <span class="pane-stat" id="stat-input">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false" placeholder="alert('hi')"></textarea>
+        </div>
+      </section>
+
+      <section class="pane output-pane">
+        <div class="pane-head">
+          <span class="pane-title">bookmarklet</span>
+        </div>
+        <div class="output-body">
+          <p class="drag-hint">Drag the pill below to your bookmark bar:</p>
+          <a class="drag-pill inert" id="dragger" draggable="true">(unnamed bookmarklet)</a>
+          <div class="url-block">
+            <div class="url-block-head">URL</div>
+            <div class="url-block-body empty" id="url-preview">(paste some JavaScript to get started)</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">copied to clipboard</div>
+
+<script>
+(() => {
+  const inputEl    = document.getElementById('input');
+  const nameEl     = document.getElementById('name');
+  const statInput  = document.getElementById('stat-input');
+  const urlLen     = document.getElementById('url-len');
+  const dragger    = document.getElementById('dragger');
+  const urlPreview = document.getElementById('url-preview');
+  const btnClear   = document.getElementById('btn-clear');
+  const btnCopy    = document.getElementById('btn-copy');
+  const toast      = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:bookmarklet';
+
+  function buildUrl(code) {
+    if (!code.trim()) return '';
+    const wrapped = '(()=>{' + code + '})();void(0);';
+    try {
+      return 'javascript:' + encodeURIComponent(wrapped);
+    } catch {
+      return '';
+    }
+  }
+
+  function render() {
+    const code = inputEl.value;
+    const name = nameEl.value;
+    statInput.textContent = `${code.length} chars`;
+
+    const url = buildUrl(code);
+    urlLen.textContent = `${url.length} chars`;
+
+    if (!url) {
+      dragger.classList.add('inert');
+      dragger.removeAttribute('href');
+      dragger.textContent = name || '(unnamed bookmarklet)';
+      urlPreview.classList.add('empty');
+      urlPreview.textContent = '(paste some JavaScript to get started)';
+    } else {
+      dragger.classList.remove('inert');
+      dragger.href = url;
+      dragger.textContent = name || '(unnamed bookmarklet)';
+      urlPreview.classList.remove('empty');
+      urlPreview.textContent = url;
+    }
+
+    persist();
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        code: inputEl.value,
+        name: nameEl.value,
+      }));
+    } catch {}
+  }
+
+  function restore() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (typeof saved.code === 'string') inputEl.value = saved.code;
+      if (typeof saved.name === 'string') nameEl.value = saved.name;
+    } catch {}
+  }
+
+  let _t;
+  function schedule() {
+    clearTimeout(_t);
+    _t = setTimeout(render, 50);
+  }
+  inputEl.addEventListener('input', schedule);
+  nameEl.addEventListener('input', render);
+
+  btnClear.addEventListener('click', () => {
+    inputEl.value = '';
+    nameEl.value = '';
+    render();
+    inputEl.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  btnCopy.addEventListener('click', async () => {
+    const url = dragger.getAttribute('href');
+    if (!url) {
+      showToast('nothing to copy');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast(`copied · ${url.length} chars`);
+    } catch {
+      showToast('copy failed');
+    }
+  });
+
+  restore();
+  render();
+})();
+</script>
+</body>
+</html>
