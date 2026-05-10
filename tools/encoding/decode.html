@@ -356,8 +356,71 @@
     };
   }
 
+  function detectUrlEncoded(input) {
+    const t = input.trim();
+    if (!/%[0-9A-Fa-f]{2}/.test(t)) return null;
+    let decoded;
+    try { decoded = decodeURIComponent(t); } catch { return null; }
+    if (decoded === t) return null;
+    return {
+      score: 0.75,
+      label: 'URL-encoded',
+      render: () => {
+        lastCopyText = decoded;
+        return `<div class="dec-section">
+          <div class="dec-section-head">URL-decoded</div>
+          <div class="dec-section-body">${escapeHtml(decoded)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectHtmlEntities(input) {
+    const t = input.trim();
+    if (!/&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);/.test(t)) return null;
+    const doc = new DOMParser().parseFromString('<!doctype html><body>' + t, 'text/html');
+    const decoded = doc.body.textContent;
+    if (decoded === t) return null;
+    return {
+      score: 0.7,
+      label: 'HTML entities',
+      render: () => {
+        lastCopyText = decoded;
+        return `<div class="dec-section">
+          <div class="dec-section-head">HTML-decoded</div>
+          <div class="dec-section-body">${escapeHtml(decoded)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectQueryString(input) {
+    const t = input.trim();
+    if (!t.includes('=') || /\s/.test(t)) return null;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return null;
+    let params;
+    try { params = new URLSearchParams(t.startsWith('?') ? t.slice(1) : t); }
+    catch { return null; }
+    const entries = [...params.entries()];
+    if (entries.length === 0) return null;
+    return {
+      score: 0.65,
+      label: 'query string',
+      render: () => {
+        lastCopyText = entries.map(([k, v]) => `${k}: ${v}`).join('\n');
+        const rows = entries.map(([k, v]) =>
+          `<span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span>`
+        ).join('');
+        return `<div class="dec-section">
+          <div class="dec-section-head">query string (${entries.length} key${entries.length === 1 ? '' : 's'})</div>
+          <div class="dec-section-body"><div class="dec-kv">${rows}</div></div>
+        </div>`;
+      },
+    };
+  }
+
   // Registry — T01 has only ROT13. Subsequent tasks append.
-  const detectors = [detectJwt, detectJson, detectUri, detectRot13];
+  const detectors = [detectJwt, detectJson, detectUri, detectUrlEncoded, detectHtmlEntities, detectQueryString, detectRot13];
 
   // ---------- engine ----------
   function detect(text) {
