@@ -4,7 +4,9 @@ A growing collection of single-purpose, client-side browser utilities. Every too
 
 ## Live site
 
-Deployed via GitHub Pages from `main`. URL appears once Pages is enabled.
+**https://curtyo18.github.io/html-utils/**
+
+Deployed via GitHub Pages from `main` on every push.
 
 ## Adding a tool
 
