@@ -8,6 +8,8 @@ A growing collection of single-purpose, client-side browser utilities. Every too
 
 Deployed via GitHub Pages from `main` on every push.
 
+![decode — paste anything, the tool auto-detects the format (JWT, JSON, base64, URI, timestamp, gzip, …) and renders the decoded view](screenshots/decode.png)
+
 ## Adding a tool
 
 1. Create `tools/<group>/<tool-name>.html` (or `tools/<group>/<tool-name>/index.html` if the tool needs supporting files).
