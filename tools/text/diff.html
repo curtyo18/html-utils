@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>text-diff · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  .diff-stats {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-faint);
+    display: inline-flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .diff-stats .add { color: var(--add); }
+  .diff-stats .del { color: var(--del); }
+  .diff-stats .same { color: var(--text-faint); }
+
+  /* main 3-pane layout: input-A | input-B | result */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  .inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+
+  /* diff result rendering */
+  .diff-view {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .diff-table td {
+    padding: 0 10px;
+    vertical-align: top;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-bottom: 1px solid transparent;
+  }
+  .diff-table td.gutter {
+    width: 44px;
+    text-align: right;
+    color: var(--text-faint);
+    user-select: none;
+    background: var(--bg-1);
+    font-size: 11px;
+    padding-top: 1px;
+  }
+  .diff-table td.marker {
+    width: 18px;
+    text-align: center;
+    color: var(--text-faint);
+    user-select: none;
+    font-weight: 500;
+  }
+  .diff-table td.left, .diff-table td.right { width: calc(50% - 40px); }
+  .diff-table tr.add td.right { background: var(--add-bg); }
+  .diff-table tr.add td.marker.right-m { color: var(--add); }
+  .diff-table tr.del td.left { background: var(--del-bg); }
+  .diff-table tr.del td.marker.left-m { color: var(--del); }
+  .diff-table tr.eq td { color: var(--text-dim); }
+  .diff-table tr.empty td.left, .diff-table tr.empty td.right { background: var(--bg-1); }
+
+  .diff-empty {
+    padding: 30px 20px;
+    text-align: center;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .toolbar .opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .toolbar .opt input[type="checkbox"] {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    margin: 0;
+  }
+  .toolbar .opt input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .toolbar .opt input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px; top: 0px;
+    width: 5px; height: 9px;
+    border: solid #1a1208;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .toolbar .opt:hover { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>text</span><span class="sep">/</span>
+      <span class="current">text-diff</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta" id="meta">line-based diff</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="diff-stats" id="stats">
+      <span class="same"><span id="stat-same">0</span> unchanged</span>
+      <span class="add">+<span id="stat-add">0</span></span>
+      <span class="del">−<span id="stat-del">0</span></span>
+    </span>
+    <span style="width:1px;height:18px;background:var(--border);margin:0 6px;"></span>
+    <label class="opt"><input type="checkbox" id="opt-ws">ignore whitespace</label>
+    <label class="opt"><input type="checkbox" id="opt-case">ignore case</label>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-swap" title="swap A and B">⇅ swap</button>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-share">share link</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <div class="inputs">
+        <section class="pane">
+          <div class="pane-head">
+            <span class="pane-title">A · original</span>
+            <span class="pane-stat" id="stat-a">0 lines</span>
+          </div>
+          <div class="pane-body">
+            <textarea class="pane-input" id="input-a" spellcheck="false" placeholder="Paste original text here…"></textarea>
+          </div>
+        </section>
+        <section class="pane">
+          <div class="pane-head">
+            <span class="pane-title">B · changed</span>
+            <span class="pane-stat" id="stat-b">0 lines</span>
+          </div>
+          <div class="pane-body">
+            <textarea class="pane-input" id="input-b" spellcheck="false" placeholder="Paste changed text here…"></textarea>
+          </div>
+        </section>
+      </div>
+
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">diff</span>
+          <span class="pane-stat" id="stat-diff">side-by-side</span>
+        </div>
+        <div class="diff-view" id="diff-view">
+          <div class="diff-empty">Paste text into A and B to see the diff.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">copied to clipboard</div>
+
+<script>
+(() => {
+  const A = document.getElementById('input-a');
+  const B = document.getElementById('input-b');
+  const statA = document.getElementById('stat-a');
+  const statB = document.getElementById('stat-b');
+  const statAdd = document.getElementById('stat-add');
+  const statDel = document.getElementById('stat-del');
+  const statSame = document.getElementById('stat-same');
+  const statDiff = document.getElementById('stat-diff');
+  const view = document.getElementById('diff-view');
+  const optWs = document.getElementById('opt-ws');
+  const optCase = document.getElementById('opt-case');
+  const btnShare = document.getElementById('btn-share');
+  const btnSwap = document.getElementById('btn-swap');
+  const btnClear = document.getElementById('btn-clear');
+  const toast = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:diff';
+
+  // ---------- LCS-based line diff ----------
+  function normalize(s) {
+    let v = s;
+    if (optWs.checked) v = v.replace(/\s+/g, ' ').trim();
+    if (optCase.checked) v = v.toLowerCase();
+    return v;
+  }
+
+  function diffLines(aLines, bLines) {
+    const n = aLines.length, m = bLines.length;
+    const an = aLines.map(normalize);
+    const bn = bLines.map(normalize);
+
+    // LCS length table
+    // Use Uint32Array for speed on larger inputs
+    const w = m + 1;
+    const dp = new Uint32Array((n + 1) * w);
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        if (an[i] === bn[j]) {
+          dp[i * w + j] = dp[(i + 1) * w + (j + 1)] + 1;
+        } else {
+          const d = dp[(i + 1) * w + j];
+          const r = dp[i * w + (j + 1)];
+          dp[i * w + j] = d > r ? d : r;
+        }
+      }
+    }
+
+    // walk
+    const out = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (an[i] === bn[j]) {
+        out.push({ t: 'eq', a: aLines[i], b: bLines[j] });
+        i++; j++;
+      } else if (dp[(i + 1) * w + j] >= dp[i * w + (j + 1)]) {
+        out.push({ t: 'del', a: aLines[i], b: null });
+        i++;
+      } else {
+        out.push({ t: 'add', a: null, b: bLines[j] });
+        j++;
+      }
+    }
+    while (i < n) { out.push({ t: 'del', a: aLines[i++], b: null }); }
+    while (j < m) { out.push({ t: 'add', a: null, b: bLines[j++] }); }
+    return out;
+  }
+
+  // Group consecutive add/del so we can pair them visually (side-by-side replace)
+  function pair(rows) {
+    const out = [];
+    let i = 0;
+    while (i < rows.length) {
+      if (rows[i].t === 'del') {
+        // collect consecutive dels then consecutive adds
+        const dels = [];
+        while (i < rows.length && rows[i].t === 'del') { dels.push(rows[i++]); }
+        const adds = [];
+        while (i < rows.length && rows[i].t === 'add') { adds.push(rows[i++]); }
+        const len = Math.max(dels.length, adds.length);
+        for (let k = 0; k < len; k++) {
+          const d = dels[k], ad = adds[k];
+          if (d && ad) out.push({ t: 'mod', a: d.a, b: ad.b });
+          else if (d)   out.push({ t: 'del', a: d.a, b: null });
+          else          out.push({ t: 'add', a: null, b: ad.b });
+        }
+      } else if (rows[i].t === 'add') {
+        // pure add block (no preceding dels) -> add rows
+        while (i < rows.length && rows[i].t === 'add') { out.push(rows[i++]); }
+      } else {
+        out.push(rows[i++]);
+      }
+    }
+    return out;
+  }
+
+  function renderDiff(aText, bText) {
+    const aLines = aText.split(/\r?\n/);
+    const bLines = bText.split(/\r?\n/);
+
+    if (!aText && !bText) {
+      view.innerHTML = '<div class="diff-empty">Paste text into A and B to see the diff.</div>';
+      statAdd.textContent = statDel.textContent = statSame.textContent = '0';
+      statDiff.textContent = 'side-by-side';
+      return;
+    }
+
+    const raw = diffLines(aLines, bLines);
+    const rows = pair(raw);
+
+    let adds = 0, dels = 0, same = 0;
+
+    const table = document.createElement('table');
+    table.className = 'diff-table';
+    let lnA = 0, lnB = 0;
+    const frag = document.createDocumentFragment();
+
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      let cls = 'eq', leftMark = ' ', rightMark = ' ', leftTxt = '', rightTxt = '';
+      let lnALabel = '', lnBLabel = '';
+      if (r.t === 'eq') {
+        lnA++; lnB++;
+        same++;
+        cls = 'eq';
+        leftTxt = r.a; rightTxt = r.b;
+        lnALabel = lnA; lnBLabel = lnB;
+      } else if (r.t === 'add') {
+        lnB++;
+        adds++;
+        cls = 'add empty';
+        rightMark = '+';
+        rightTxt = r.b;
+        leftTxt = '';
+        lnBLabel = lnB;
+      } else if (r.t === 'del') {
+        lnA++;
+        dels++;
+        cls = 'del empty';
+        leftMark = '−';
+        leftTxt = r.a;
+        rightTxt = '';
+        lnALabel = lnA;
+      } else if (r.t === 'mod') {
+        lnA++; lnB++;
+        adds++; dels++;
+        cls = 'add del';
+        leftMark = '−'; rightMark = '+';
+        leftTxt = r.a; rightTxt = r.b;
+        lnALabel = lnA; lnBLabel = lnB;
+      }
+      tr.className = cls;
+      tr.innerHTML = `
+        <td class="gutter">${lnALabel}</td>
+        <td class="marker left-m">${leftMark}</td>
+        <td class="left">${escapeHtml(leftTxt)}</td>
+        <td class="gutter">${lnBLabel}</td>
+        <td class="marker right-m">${rightMark}</td>
+        <td class="right">${escapeHtml(rightTxt)}</td>
+      `;
+      frag.appendChild(tr);
+    }
+    table.appendChild(frag);
+    view.innerHTML = '';
+    view.appendChild(table);
+
+    statAdd.textContent = adds;
+    statDel.textContent = dels;
+    statSame.textContent = same;
+    statDiff.textContent = (adds + dels === 0) ? 'identical' : `${rows.length} rows`;
+  }
+
+  function escapeHtml(s) {
+    return (s ?? '').replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
+  }
+
+  // ---------- update loop ----------
+  let _t;
+  function schedule() {
+    clearTimeout(_t);
+    _t = setTimeout(update, 80);
+  }
+  function update() {
+    const a = A.value, b = B.value;
+    statA.textContent = `${a ? a.split(/\r?\n/).length : 0} lines · ${a.length} chars`;
+    statB.textContent = `${b ? b.split(/\r?\n/).length : 0} lines · ${b.length} chars`;
+    renderDiff(a, b);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        a, b, ws: optWs.checked, case: optCase.checked,
+      }));
+    } catch {}
+  }
+
+  A.addEventListener('input', schedule);
+  B.addEventListener('input', schedule);
+  optWs.addEventListener('change', update);
+  optCase.addEventListener('change', update);
+
+  btnSwap.addEventListener('click', () => {
+    const t = A.value; A.value = B.value; B.value = t;
+    update();
+  });
+  btnClear.addEventListener('click', () => {
+    A.value = ''; B.value = ''; update(); A.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  // ---------- share link with gzip + base64url ----------
+  async function gzipBase64(text) {
+    const cs = new CompressionStream('gzip');
+    const writer = cs.writable.getWriter();
+    writer.write(new TextEncoder().encode(text));
+    writer.close();
+    const buf = await new Response(cs.readable).arrayBuffer();
+    return b64urlEncode(new Uint8Array(buf));
+  }
+  async function gunzipBase64(s) {
+    const bytes = b64urlDecode(s);
+    const ds = new DecompressionStream('gzip');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const buf = await new Response(ds.readable).arrayBuffer();
+    return new TextDecoder().decode(buf);
+  }
+  function b64urlEncode(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function b64urlDecode(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    const bin = atob(str);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  btnShare.addEventListener('click', async () => {
+    try {
+      // Use a tab character as a delimiter — unlikely in pasted text
+      // Fall back to using a sentinel that's escaped
+      const SEP = '\u0001';
+      const payload = (A.value || '') + SEP + (B.value || '');
+      const enc = await gzipBase64(payload);
+      const url = location.origin + location.pathname + '#d=' + enc;
+      await navigator.clipboard.writeText(url);
+      const sz = url.length;
+      showToast(`share link copied · ${sz} chars`);
+      history.replaceState(null, '', '#d=' + enc);
+    } catch (e) {
+      console.error(e);
+      showToast('share failed: ' + (e.message || e));
+    }
+  });
+
+  // ---------- restore from hash, then storage ----------
+  async function restore() {
+    const hash = location.hash;
+    const m = hash.match(/^#d=(.+)$/);
+    if (m) {
+      try {
+        const SEP = '\u0001';
+        const text = await gunzipBase64(m[1]);
+        const idx = text.indexOf(SEP);
+        if (idx >= 0) {
+          A.value = text.slice(0, idx);
+          B.value = text.slice(idx + 1);
+          update();
+          return;
+        }
+      } catch (e) {
+        console.warn('failed to decode share link', e);
+      }
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (saved.a) A.value = saved.a;
+      if (saved.b) B.value = saved.b;
+      if (typeof saved.ws === 'boolean') optWs.checked = saved.ws;
+      if (typeof saved.case === 'boolean') optCase.checked = saved.case;
+    } catch {}
+    update();
+  }
+
+  restore();
+})();
+</script>
+</body>
+</html>
