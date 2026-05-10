@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>decode · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  /* layout */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  .input-pane .pane-body { height: 180px; }
+
+  /* chip row */
+  .chips {
+    display: flex;
+    gap: 6px;
+    padding: 8px 14px;
+    flex-wrap: wrap;
+    background: var(--bg-1);
+    align-items: center;
+    min-height: 36px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 3px 9px;
+    cursor: pointer;
+    transition: color 120ms, border-color 120ms, background 120ms;
+    user-select: none;
+  }
+  .chip:hover { color: var(--text); border-color: var(--border-strong); }
+  .chip.selected {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--bg-1);
+  }
+  .chip-score {
+    color: var(--text-faint);
+    margin-left: 6px;
+    font-size: 10px;
+  }
+  .chip.selected .chip-score { color: var(--accent-dim); }
+  .chips-empty {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  /* output pane */
+  .output-pane {
+    overflow: auto;
+    background: var(--bg);
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  .dec-empty {
+    text-align: center;
+    color: var(--text-faint);
+    padding: 30px 18px;
+    font-size: 12px;
+  }
+  .dec-section {
+    margin: 0 0 16px;
+  }
+  .dec-section:last-child { margin-bottom: 0; }
+  .dec-section-head {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0 0 6px;
+  }
+  .dec-section-body {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 10px 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .dec-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .dec-kv .k { color: var(--text-faint); }
+  .dec-kv .v { color: var(--text); word-break: break-all; }
+  .dec-kv .v .extra { color: var(--text-faint); margin-left: 8px; }
+  .dec-bytes {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    word-break: break-all;
+  }
+
+  .toolbar .status {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .toolbar .status .fmt { color: var(--accent); }
+  .toolbar .status .score { color: var(--text-faint); margin-left: 6px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>encoding</span><span class="sep">/</span>
+      <span class="current">decode</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste · auto-detect</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="status" id="status">no input</span>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-copy">copy</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <section class="pane input-pane">
+        <div class="pane-head">
+          <span class="pane-title">input</span>
+          <span class="pane-stat" id="stat-input">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false" placeholder="Paste anything: a JWT, base64, hex, JSON, URL, …"></textarea>
+        </div>
+      </section>
+
+      <div class="chips" id="chips"></div>
+
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">decoded</span>
+          <span class="pane-stat" id="stat-output"></span>
+        </div>
+        <div class="output-pane" id="output">
+          <div class="dec-empty">Paste a string to decode.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">copied to clipboard</div>
+
+<script>
+(() => {
+  const inputEl    = document.getElementById('input');
+  const statusEl   = document.getElementById('status');
+  const statInput  = document.getElementById('stat-input');
+  const statOutput = document.getElementById('stat-output');
+  const chipsEl    = document.getElementById('chips');
+  const outputEl   = document.getElementById('output');
+  const btnClear   = document.getElementById('btn-clear');
+  const btnCopy    = document.getElementById('btn-copy');
+  const toast      = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:decode';
+
+  let override = null;
+  let lastCopyText = '';
+  let renderToken = 0;
+
+  // ---------- helpers ----------
+  function escapeHtml(s) {
+    return (s ?? '').toString().replace(/[&<>"']/g, c => (
+      { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]
+    ));
+  }
+
+  function isPrintableBytes(bytes) {
+    if (!bytes.length) return false;
+    let printable = 0;
+    for (const b of bytes) {
+      if (b === 9 || b === 10 || b === 13 || (b >= 32 && b <= 126) || b >= 128) printable++;
+    }
+    return printable / bytes.length > 0.85;
+  }
+
+  function bytesToText(bytes) {
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  }
+
+  function bytesToHex(bytes) {
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(' ');
+  }
+
+  function decodeBase64Url(s) {
+    let str = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    const bin = atob(str);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function formatRelative(ms) {
+    const diff = ms - Date.now();
+    const abs = Math.abs(diff);
+    const sec = Math.round(abs / 1000);
+    const min = Math.round(sec / 60);
+    const hr  = Math.round(min / 60);
+    const day = Math.round(hr / 24);
+    const yr  = Math.round(day / 365);
+    let val, unit;
+    if (sec < 60)        { val = sec; unit = 'second'; }
+    else if (min < 60)   { val = min; unit = 'minute'; }
+    else if (hr < 48)    { val = hr;  unit = 'hour'; }
+    else if (day < 365)  { val = day; unit = 'day'; }
+    else                 { val = yr;  unit = 'year'; }
+    const plural = val === 1 ? '' : 's';
+    return diff < 0 ? `${val} ${unit}${plural} ago` : `${val} ${unit}${plural} from now`;
+  }
+
+  function renderBytes(label, bytes, printable) {
+    const hex = bytesToHex(bytes);
+    const text = printable ? bytesToText(bytes) : null;
+    lastCopyText = text || hex;
+    const textBlock = text ? `<div class="dec-section">
+      <div class="dec-section-head">decoded text (${bytes.length} bytes)</div>
+      <div class="dec-section-body">${escapeHtml(text)}</div>
+    </div>` : '';
+    return `${textBlock}<div class="dec-section">
+      <div class="dec-section-head">bytes (hex, ${bytes.length})</div>
+      <div class="dec-section-body dec-bytes">${hex}</div>
+    </div>`;
+  }
+
+  // ---------- detectors ----------
+  // Each: function(input) -> { score, label, render } | null
+  // render() returns string | Promise<string>; sets lastCopyText for the copy button.
+
+  function detectRot13(input) {
+    if (!/[a-zA-Z]/.test(input)) return null;
+    return {
+      score: 0.3,
+      label: 'ROT13',
+      render: () => {
+        const out = input.replace(/[a-zA-Z]/g, c => {
+          const base = c <= 'Z' ? 65 : 97;
+          return String.fromCharCode((c.charCodeAt(0) - base + 13) % 26 + base);
+        });
+        lastCopyText = out;
+        return `<div class="dec-section">
+          <div class="dec-section-head">ROT13</div>
+          <div class="dec-section-body">${escapeHtml(out)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectJson(input) {
+    const t = input.trim();
+    if (!t) return null;
+    if (!/^[\[{"]|^(true|false|null|-?\d)/.test(t)) return null;
+    let parsed;
+    try { parsed = JSON.parse(t); } catch { return null; }
+    return {
+      score: 0.95,
+      label: 'JSON',
+      render: () => {
+        const pretty = JSON.stringify(parsed, null, 2);
+        lastCopyText = pretty;
+        return `<div class="dec-section">
+          <div class="dec-section-head">JSON</div>
+          <div class="dec-section-body">${escapeHtml(pretty)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectJwt(input) {
+    const t = input.trim();
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) return null;
+    const [hSeg, pSeg, sSeg] = t.split('.');
+    let header, payload, sigBytes;
+    try {
+      header = JSON.parse(bytesToText(decodeBase64Url(hSeg)));
+      if (!header || typeof header !== 'object' || !header.alg) return null;
+      payload = JSON.parse(bytesToText(decodeBase64Url(pSeg)));
+      sigBytes = decodeBase64Url(sSeg);
+    } catch {
+      return null;
+    }
+    return {
+      score: 0.95,
+      label: 'JWT',
+      render: () => {
+        const headerStr = JSON.stringify(header, null, 2);
+        const payloadStr = JSON.stringify(payload, null, 2);
+        const knownClaims = ['iss', 'sub', 'aud', 'exp', 'iat', 'nbf', 'jti'];
+        const dateClaims = new Set(['exp', 'iat', 'nbf']);
+        const claimRows = knownClaims
+          .filter(k => payload && k in payload)
+          .map(k => {
+            const v = payload[k];
+            let display = escapeHtml(JSON.stringify(v));
+            if (dateClaims.has(k) && typeof v === 'number') {
+              const d = new Date(v * 1000);
+              display += `<span class="extra">${escapeHtml(d.toISOString())}</span>`;
+            }
+            return `<span class="k">${escapeHtml(k)}</span><span class="v">${display}</span>`;
+          }).join('');
+        const claimsBlock = claimRows ? `<div class="dec-section">
+          <div class="dec-section-head">claims</div>
+          <div class="dec-section-body"><div class="dec-kv">${claimRows}</div></div>
+        </div>` : '';
+        lastCopyText =
+          `HEADER\n${headerStr}\n\nPAYLOAD\n${payloadStr}\n\nSIGNATURE (${sigBytes.length} bytes)\n${bytesToHex(sigBytes)}`;
+        return `<div class="dec-section">
+          <div class="dec-section-head">header</div>
+          <div class="dec-section-body">${escapeHtml(headerStr)}</div>
+        </div>
+        <div class="dec-section">
+          <div class="dec-section-head">payload</div>
+          <div class="dec-section-body">${escapeHtml(payloadStr)}</div>
+        </div>
+        ${claimsBlock}
+        <div class="dec-section">
+          <div class="dec-section-head">signature (${sigBytes.length} bytes)</div>
+          <div class="dec-section-body dec-bytes">${bytesToHex(sigBytes)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectUri(input) {
+    const t = input.trim();
+    if (!/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(t)) return null;
+    let url;
+    try { url = new URL(t); } catch { return null; }
+    return {
+      score: 0.9,
+      label: 'URI',
+      render: () => {
+        const params = [...url.searchParams.entries()];
+        const parts = [
+          ['scheme',   url.protocol.replace(/:$/, '')],
+          ['host',     url.hostname],
+          ['port',     url.port || '(default)'],
+          ['path',     url.pathname],
+          ['query',    url.search || '(none)'],
+          ['hash',     url.hash || '(none)'],
+        ];
+        if (url.username) parts.push(['username', url.username]);
+        if (url.password) parts.push(['password', '(set)']);
+        const partsRows = parts.map(([k, v]) =>
+          `<span class="k">${k}</span><span class="v">${escapeHtml(v)}</span>`
+        ).join('');
+        const queryBlock = params.length ? `<div class="dec-section">
+          <div class="dec-section-head">query parameters (${params.length})</div>
+          <div class="dec-section-body"><div class="dec-kv">${
+            params.map(([k, v]) => `<span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span>`).join('')
+          }</div></div>
+        </div>` : '';
+        lastCopyText = parts.map(([k, v]) => `${k}: ${v}`).join('\n')
+          + (params.length ? '\n\nQUERY\n' + params.map(([k, v]) => `${k}: ${v}`).join('\n') : '');
+        return `<div class="dec-section">
+          <div class="dec-section-head">URI</div>
+          <div class="dec-section-body"><div class="dec-kv">${partsRows}</div></div>
+        </div>${queryBlock}`;
+      },
+    };
+  }
+
+  function detectUrlEncoded(input) {
+    const t = input.trim();
+    if (!/%[0-9A-Fa-f]{2}/.test(t)) return null;
+    let decoded;
+    try { decoded = decodeURIComponent(t); } catch { return null; }
+    if (decoded === t) return null;
+    return {
+      score: 0.75,
+      label: 'URL-encoded',
+      render: () => {
+        lastCopyText = decoded;
+        return `<div class="dec-section">
+          <div class="dec-section-head">URL-decoded</div>
+          <div class="dec-section-body">${escapeHtml(decoded)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectHtmlEntities(input) {
+    const t = input.trim();
+    if (!/&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);/.test(t)) return null;
+    const doc = new DOMParser().parseFromString('<!doctype html><body>' + t, 'text/html');
+    const decoded = doc.body.textContent;
+    if (decoded === t) return null;
+    return {
+      score: 0.7,
+      label: 'HTML entities',
+      render: () => {
+        lastCopyText = decoded;
+        return `<div class="dec-section">
+          <div class="dec-section-head">HTML-decoded</div>
+          <div class="dec-section-body">${escapeHtml(decoded)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectQueryString(input) {
+    const t = input.trim();
+    if (!t.includes('=') || /\s/.test(t)) return null;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return null;
+    let params;
+    try { params = new URLSearchParams(t.startsWith('?') ? t.slice(1) : t); }
+    catch { return null; }
+    const entries = [...params.entries()];
+    if (entries.length === 0) return null;
+    return {
+      score: 0.65,
+      label: 'query string',
+      render: () => {
+        lastCopyText = entries.map(([k, v]) => `${k}: ${v}`).join('\n');
+        const rows = entries.map(([k, v]) =>
+          `<span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span>`
+        ).join('');
+        return `<div class="dec-section">
+          <div class="dec-section-head">query string (${entries.length} key${entries.length === 1 ? '' : 's'})</div>
+          <div class="dec-section-body"><div class="dec-kv">${rows}</div></div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectTimestamp(input) {
+    const t = input.trim();
+    if (!/^\d{9,13}$/.test(t)) return null;
+    const n = Number(t);
+    if (!Number.isFinite(n)) return null;
+    const isMs = t.length >= 12;
+    const ms = isMs ? n : n * 1000;
+    const d = new Date(ms);
+    const year = d.getUTCFullYear();
+    if (year < 1970 || year > 2100) return null;
+    return {
+      score: 0.7,
+      label: 'Unix timestamp',
+      render: () => {
+        const lines = [
+          ['unit',     isMs ? 'milliseconds' : 'seconds'],
+          ['UTC',      d.toISOString()],
+          ['local',    d.toString()],
+          ['relative', formatRelative(ms)],
+        ];
+        lastCopyText = lines.map(([k, v]) => `${k}: ${v}`).join('\n');
+        const rows = lines.map(([k, v]) =>
+          `<span class="k">${k}</span><span class="v">${escapeHtml(v)}</span>`
+        ).join('');
+        return `<div class="dec-section">
+          <div class="dec-section-head">Unix timestamp</div>
+          <div class="dec-section-body"><div class="dec-kv">${rows}</div></div>
+        </div>`;
+      },
+    };
+  }
+
+  function detectHex(input) {
+    const t = input.trim().replace(/\s+/g, '');
+    if (!/^[0-9a-fA-F]+$/.test(t)) return null;
+    if (t.length < 4 || t.length % 2 !== 0) return null;
+    const bytes = new Uint8Array(t.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(t.substr(i * 2, 2), 16);
+    }
+    let score = 0.5;
+    const printable = isPrintableBytes(bytes);
+    if (printable) score += 0.2;
+    return {
+      score,
+      label: 'hex',
+      render: () => renderBytes('hex', bytes, printable),
+    };
+  }
+
+  function detectBase64(input) {
+    const t = input.trim().replace(/\s+/g, '');
+    const isStandard = /^[A-Za-z0-9+/]+=*$/.test(t);
+    const isUrlVariant = /^[A-Za-z0-9_-]+=*$/.test(t) && /[-_]/.test(t);
+    if (!isStandard && !isUrlVariant) return null;
+    if (t.length < 4) return null;
+    if (t.length % 4 === 1) return null;
+    let bytes;
+    try { bytes = decodeBase64Url(t); } catch { return null; }
+    let score = 0.55;
+    const printable = isPrintableBytes(bytes);
+    if (printable) score += 0.2;
+    if (t.length < 8) score -= 0.2;
+    const label = isUrlVariant ? 'base64url' : 'base64';
+    return {
+      score,
+      label,
+      render: () => renderBytes(label, bytes, printable),
+    };
+  }
+
+  function detectBase32(input) {
+    const t = input.trim().replace(/\s+/g, '').toUpperCase();
+    if (!/^[A-Z2-7]+=*$/.test(t)) return null;
+    if (t.length < 8) return null;
+    if (![0, 2, 4, 5, 7].includes(t.length % 8)) return null;
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const cleaned = t.replace(/=+$/, '');
+    let bits = '';
+    for (const c of cleaned) {
+      const idx = alphabet.indexOf(c);
+      if (idx < 0) return null;
+      bits += idx.toString(2).padStart(5, '0');
+    }
+    const byteCount = Math.floor(bits.length / 8);
+    const bytes = new Uint8Array(byteCount);
+    for (let i = 0; i < byteCount; i++) {
+      bytes[i] = parseInt(bits.substr(i * 8, 8), 2);
+    }
+    let score = 0.5;
+    const printable = isPrintableBytes(bytes);
+    if (printable) score += 0.2;
+    return {
+      score,
+      label: 'base32',
+      render: () => renderBytes('base32', bytes, printable),
+    };
+  }
+
+  function detectGzip(input) {
+    const t = input.trim().replace(/\s+/g, '');
+    let bytes = null;
+    if (/^[A-Za-z0-9+/_=-]+$/.test(t) && t.length >= 8) {
+      try { bytes = decodeBase64Url(t); } catch {}
+    } else if (/^[0-9a-fA-F]+$/.test(t) && t.length % 2 === 0 && t.length >= 6) {
+      bytes = new Uint8Array(t.length / 2);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(t.substr(i * 2, 2), 16);
+    }
+    if (!bytes || bytes.length < 3 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return null;
+    return {
+      score: 0.85,
+      label: 'gzip',
+      render: async () => {
+        let decompressed;
+        try {
+          const ds = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          writer.write(bytes);
+          writer.close();
+          const buf = await new Response(ds.readable).arrayBuffer();
+          decompressed = bytesToText(new Uint8Array(buf));
+        } catch (e) {
+          lastCopyText = '';
+          return `<div class="dec-empty">gzip decompress failed: ${escapeHtml(e.message || String(e))}</div>`;
+        }
+        lastCopyText = decompressed;
+        return `<div class="dec-section">
+          <div class="dec-section-head">gzip-decompressed (${decompressed.length} chars)</div>
+          <div class="dec-section-body">${escapeHtml(decompressed)}</div>
+        </div>`;
+      },
+    };
+  }
+
+  // Registry — T01 has only ROT13. Subsequent tasks append.
+  const detectors = [
+    detectJwt, detectJson, detectUri, detectGzip,
+    detectUrlEncoded, detectHtmlEntities, detectQueryString,
+    detectTimestamp, detectBase64, detectHex, detectBase32, detectRot13,
+  ];
+
+  // ---------- engine ----------
+  function detect(text) {
+    if (!text) return [];
+    const cands = [];
+    for (const fn of detectors) {
+      try {
+        const c = fn(text);
+        if (c && c.score > 0) cands.push(c);
+      } catch (e) { /* detector throw → ignore */ }
+    }
+    cands.sort((a, b) => b.score - a.score);
+    return cands.slice(0, 6);
+  }
+
+  function chooseSelected(cands) {
+    if (override) {
+      const m = cands.find(c => c.label === override);
+      if (m) return m;
+      override = null;
+    }
+    return cands[0];
+  }
+
+  async function render() {
+    const myToken = ++renderToken;
+    const text = inputEl.value;
+    statInput.textContent = `${text.length} chars`;
+    persist();
+
+    if (!text) {
+      statusEl.textContent = 'no input';
+      chipsEl.innerHTML = '';
+      outputEl.innerHTML = '<div class="dec-empty">Paste a string to decode.</div>';
+      statOutput.textContent = '';
+      lastCopyText = '';
+      return;
+    }
+
+    const cands = detect(text.trim());
+    if (cands.length === 0) {
+      statusEl.textContent = 'no recognized format';
+      chipsEl.innerHTML = '<span class="chips-empty">no candidates</span>';
+      outputEl.innerHTML = '<div class="dec-empty">Couldn’t recognize this format.</div>';
+      statOutput.textContent = '';
+      lastCopyText = '';
+      return;
+    }
+
+    const selected = chooseSelected(cands);
+
+    chipsEl.innerHTML = '';
+    for (const c of cands) {
+      const el = document.createElement('button');
+      el.className = 'chip' + (c === selected ? ' selected' : '');
+      el.innerHTML = `${escapeHtml(c.label)}<span class="chip-score">${c.score.toFixed(2)}</span>`;
+      el.addEventListener('click', () => {
+        override = c.label;
+        render();
+      });
+      chipsEl.appendChild(el);
+    }
+
+    statusEl.innerHTML = override
+      ? `manual: <span class="fmt">${escapeHtml(selected.label)}</span><span class="score">${selected.score.toFixed(2)}</span>`
+      : `auto-detected: <span class="fmt">${escapeHtml(selected.label)}</span><span class="score">${selected.score.toFixed(2)}</span>`;
+    statOutput.textContent = `${cands.length} candidate${cands.length === 1 ? '' : 's'}`;
+
+    let html;
+    try {
+      html = await selected.render();
+    } catch (e) {
+      console.error('render failed', e);
+      html = `<div class="dec-empty">Decode failed: ${escapeHtml(e.message || String(e))}</div>`;
+      lastCopyText = '';
+    }
+    if (myToken !== renderToken) return;
+    outputEl.innerHTML = html;
+  }
+
+  // ---------- persistence ----------
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        input: inputEl.value,
+        override,
+      }));
+    } catch {}
+  }
+  function restore() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (typeof saved.input === 'string') inputEl.value = saved.input;
+      if (typeof saved.override === 'string') override = saved.override;
+    } catch {}
+  }
+
+  // ---------- update loop ----------
+  let _t;
+  function schedule() {
+    clearTimeout(_t);
+    _t = setTimeout(render, 80);
+  }
+  inputEl.addEventListener('input', () => {
+    override = null;
+    schedule();
+  });
+
+  btnClear.addEventListener('click', () => {
+    inputEl.value = '';
+    override = null;
+    render();
+    inputEl.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  btnCopy.addEventListener('click', async () => {
+    if (!lastCopyText) {
+      showToast('nothing to copy');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(lastCopyText);
+      showToast(`copied · ${lastCopyText.length} chars`);
+    } catch {
+      showToast('copy failed');
+    }
+  });
+
+  restore();
+  render();
+})();
+</script>
+</body>
+</html>
