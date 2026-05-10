@@ -1,0 +1,4 @@
+_ignored/
+manifest.json
+node_modules/
+.DS_Store
