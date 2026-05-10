@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .home-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 64px 24px 60px;
+  }
+  .home-inner {
+    width: 100%;
+    max-width: 760px;
+  }
+  .home-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin: 0 0 6px;
+  }
+  .home-sub {
+    font-family: var(--sans);
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--text);
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  .home-blurb {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin: 0 0 28px;
+    max-width: 56ch;
+  }
+
+  .search {
+    margin: 0 0 24px;
+    position: relative;
+  }
+  .search input {
+    width: 100%;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 14px 10px 36px;
+    outline: none;
+    transition: border-color 120ms;
+  }
+  .search input:focus { border-color: var(--border-strong); }
+  .search input::placeholder { color: var(--text-faint); }
+  .search-icon {
+    position: absolute;
+    left: 12px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 13px;
+    pointer-events: none;
+  }
+  .search-kbd {
+    position: absolute;
+    right: 10px; top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    pointer-events: none;
+  }
+
+  .group { margin: 0 0 18px; }
+  .group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 8px;
+    padding: 0 4px;
+  }
+  .group-name {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .group-path {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    opacity: 0.6;
+  }
+  .group-rule {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .group-desc {
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  .tools {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+  }
+  .tool {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 18px;
+    background: var(--bg-1);
+    color: var(--text);
+    transition: background 120ms;
+    cursor: pointer;
+  }
+  .tool:hover { background: var(--bg-2); }
+  .tool:hover .tool-arrow { color: var(--accent); transform: translateX(2px); }
+  .tool-glyph {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    text-align: center;
+  }
+  .tool-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .tool-name {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text);
+  }
+  .tool-desc {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .tool-arrow {
+    font-family: var(--mono);
+    color: var(--text-faint);
+    transition: transform 150ms, color 150ms;
+  }
+  .group .group { margin-left: 12px; border-left: 1px dashed var(--border); padding-left: 14px; }
+
+  .empty-state {
+    padding: 30px 18px;
+    text-align: center;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+  }
+
+  .footer-note {
+    margin-top: 28px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  .footer-note code {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb"><span class="current">home</span></div>
+    <div class="spacer"></div>
+    <div class="meta">local · no tracking</div>
+  </header>
+
+  <main class="main">
+    <div class="home-wrap">
+      <div class="home-inner">
+        <p class="home-title">utilities</p>
+        <h1 class="home-sub">Small tools for repetitive tasks.</h1>
+        <p class="home-blurb">A growing collection of single-purpose pages. Each one does exactly one thing, runs entirely in your browser, and remembers nothing.</p>
+
+        <div class="search">
+          <span class="search-icon">/</span>
+          <input id="search" type="text" placeholder="filter tools…" autofocus>
+          <span class="search-kbd">/</span>
+        </div>
+
+        <div id="tree"></div>
+
+        <p class="footer-note">// drop a folder under <code>tools/</code> to register a new tool — it picks up on the next push.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const tree = document.getElementById('tree');
+  const search = document.getElementById('search');
+  let TOOLS = [];
+
+  function renderGroup(node, pathParts) {
+    const el = document.createElement('section');
+    el.className = 'group';
+
+    const head = document.createElement('div');
+    head.className = 'group-head';
+    head.innerHTML = `
+      <span class="group-name">${escapeHtml(node.group)}</span>
+      <span class="group-path">/${pathParts.join('/')}</span>
+      <span class="group-rule"></span>
+      ${node.desc ? `<span class="group-desc">${escapeHtml(node.desc)}</span>` : ''}
+    `;
+    el.appendChild(head);
+
+    const tools = (node.children || []).filter(c => c.name);
+    const groups = (node.children || []).filter(c => c.group);
+
+    if (tools.length) {
+      const list = document.createElement('div');
+      list.className = 'tools';
+      for (const t of tools) {
+        list.appendChild(renderTool(t, pathParts));
+      }
+      el.appendChild(list);
+    }
+
+    for (const g of groups) {
+      el.appendChild(renderGroup(g, [...pathParts, g.group]));
+    }
+
+    return el;
+  }
+
+  function renderTool(t, pathParts) {
+    const a = document.createElement('a');
+    a.className = 'tool';
+    a.href = t.href;
+    a.dataset.search = (t.name + ' ' + (t.desc || '') + ' ' + pathParts.join(' ')).toLowerCase();
+    a.innerHTML = `
+      <span class="tool-glyph">${escapeHtml(t.glyph || '·')}</span>
+      <span class="tool-text">
+        <span class="tool-name">${escapeHtml(t.name)}</span>
+        <span class="tool-desc">${escapeHtml(t.desc || '')}</span>
+      </span>
+      <span class="tool-arrow">→</span>
+    `;
+    return a;
+  }
+
+  function escapeHtml(s) {
+    return (s ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function render() {
+    tree.innerHTML = '';
+    if (!TOOLS.length) {
+      tree.innerHTML = '<div class="empty-state">no tools registered yet</div>';
+      return;
+    }
+    for (const n of TOOLS) {
+      if (n.group) tree.appendChild(renderGroup(n, [n.group]));
+      else {
+        const wrap = document.createElement('div');
+        wrap.className = 'tools';
+        wrap.appendChild(renderTool(n, []));
+        tree.appendChild(wrap);
+      }
+    }
+  }
+
+  function applyFilter() {
+    const q = search.value.trim().toLowerCase();
+    const all = tree.querySelectorAll('.tool');
+    all.forEach(a => {
+      const hit = !q || a.dataset.search.includes(q);
+      a.style.display = hit ? '' : 'none';
+    });
+    tree.querySelectorAll('.group').forEach(g => {
+      const visible = g.querySelectorAll('.tool:not([style*="display: none"])').length;
+      g.style.display = visible ? '' : 'none';
+    });
+  }
+
+  async function loadManifest() {
+    try {
+      const res = await fetch('manifest.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error(`manifest.json HTTP ${res.status}`);
+      const data = await res.json();
+      TOOLS = Array.isArray(data.tools) ? data.tools : [];
+    } catch (err) {
+      console.error('failed to load manifest', err);
+      TOOLS = [];
+    }
+    render();
+    applyFilter();
+  }
+
+  render();
+  loadManifest();
+  search.addEventListener('input', applyFilter);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement !== search) {
+      e.preventDefault();
+      search.focus();
+      search.select();
+    }
+  });
+</script>
+</body>
+</html>
