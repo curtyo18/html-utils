@@ -136,6 +136,30 @@
   }
   .toolbar .status .fmt { color: var(--accent); }
   .toolbar .status .score { color: var(--text-faint); margin-left: 6px; font-size: 11px; }
+
+  /* inner-content block: one nested level of decoded bodies found inside the outer value */
+  .dec-inner {
+    margin: 18px 0 0;
+    padding-left: 14px;
+    border-left: 2px solid var(--border-strong);
+  }
+  .dec-inner-head {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    margin: 0 0 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .dec-inner-head .path {
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .dec-inner-head .sep {
+    color: var(--text-faint);
+    margin: 0 6px;
+  }
 </style>
 </head>
 <body>
@@ -298,19 +322,36 @@
     if (!t) return null;
     if (!/^[\[{"]|^(true|false|null|-?\d)/.test(t)) return null;
     let parsed;
-    try { parsed = JSON.parse(t); } catch { return null; }
-    return {
-      score: 0.95,
-      label: 'JSON',
-      render: () => {
-        const pretty = JSON.stringify(parsed, null, 2);
-        lastCopyText = pretty;
-        return `<div class="dec-section">
-          <div class="dec-section-head">JSON</div>
-          <div class="dec-section-body">${escapeHtml(pretty)}</div>
-        </div>`;
-      },
+    let doubledQuotes = false;
+    try {
+      parsed = JSON.parse(t);
+    } catch {
+      // Fallback: CSV-style doubled-quote escaping, e.g. {""key"":""value""}.
+      if (/""/.test(t)) {
+        try {
+          parsed = JSON.parse(t.replace(/""/g, '"'));
+          doubledQuotes = true;
+        } catch { return null; }
+      } else {
+        return null;
+      }
+    }
+    const label = doubledQuotes ? 'JSON (""-escaped)' : 'JSON';
+    const cand = { score: doubledQuotes ? 0.9 : 0.95, label };
+    cand.render = async (opts = {}) => {
+      const findInner = opts.findInner !== false;
+      const pretty = JSON.stringify(parsed, null, 2);
+      lastCopyText = pretty;
+      const head = doubledQuotes ? 'JSON (un-doubled quotes)' : 'JSON';
+      const main = `<div class="dec-section">
+        <div class="dec-section-head">${head}</div>
+        <div class="dec-section-body">${escapeHtml(pretty)}</div>
+      </div>`;
+      const finds = findInner ? walkJsonForInner(parsed) : [];
+      cand.innerCount = finds.length;
+      return main + await renderInnerFinds(finds);
     };
+    return cand;
   }
 
   function detectJwt(input) {
@@ -413,17 +454,23 @@
     let decoded;
     try { decoded = decodeURIComponent(t); } catch { return null; }
     if (decoded === t) return null;
-    return {
-      score: 0.75,
-      label: 'URL-encoded',
-      render: () => {
-        lastCopyText = decoded;
-        return `<div class="dec-section">
-          <div class="dec-section-head">URL-decoded</div>
-          <div class="dec-section-body">${escapeHtml(decoded)}</div>
-        </div>`;
-      },
+    const cand = { score: 0.75, label: 'URL-encoded' };
+    cand.render = async (opts = {}) => {
+      const findInner = opts.findInner !== false;
+      lastCopyText = decoded;
+      const main = `<div class="dec-section">
+        <div class="dec-section-head">URL-decoded</div>
+        <div class="dec-section-body">${escapeHtml(decoded)}</div>
+      </div>`;
+      let finds = [];
+      if (findInner) {
+        const inner = detectBestInner(decoded.trim());
+        if (inner) finds = [{ path: '(decoded)', candidate: inner }];
+      }
+      cand.innerCount = finds.length;
+      return main + await renderInnerFinds(finds);
     };
+    return cand;
   }
 
   function detectHtmlEntities(input) {
@@ -604,9 +651,159 @@
     };
   }
 
-  // Registry — T01 has only ROT13. Subsequent tasks append.
+  function formatXml(xml) {
+    const PADDING = '  ';
+    const NAME = '[A-Za-z_][\\w:.-]*';
+    const reOpen        = new RegExp(`^<${NAME}(\\s[^>]*)?>$`);
+    const reClose       = new RegExp(`^</${NAME}\\s*>$`);
+    const reSelfClose   = new RegExp(`^<${NAME}(\\s[^>]*)?/>$`);
+    const reInline      = new RegExp(`^<${NAME}(\\s[^>]*)?>[^<]*</${NAME}\\s*>$`);
+    const compact = xml.replace(/>\s+</g, '><').trim();
+    const expanded = compact.replace(/(>)(<)(\/*)/g, '$1\n$2$3');
+    let pad = 0;
+    return expanded.split('\n').map(node => {
+      if (!node) return null;
+      let indent = 0;
+      if (/^<\?/.test(node) || /^<!--/.test(node) || /^<!\[/.test(node) || /^<!DOCTYPE/i.test(node)) {
+        // pi / comment / cdata / doctype — no indent change
+      } else if (reClose.test(node)) {
+        pad = Math.max(0, pad - 1);
+      } else if (reSelfClose.test(node) || reInline.test(node)) {
+        // self-closing / one-line element — no indent change
+      } else if (reOpen.test(node)) {
+        indent = 1;
+      }
+      // Anything else (text content, malformed bits like <<REDACTED>>) keeps current indent.
+      const result = PADDING.repeat(pad) + node;
+      pad += indent;
+      return result;
+    }).filter(x => x !== null).join('\n');
+  }
+
+  function detectXml(input) {
+    const t = input.trim();
+    if (!t.startsWith('<') || !t.includes('>') || t.length < 5) return null;
+    if (!/^<[?!a-zA-Z]/.test(t)) return null;
+    // Require at least one closing tag or self-closing tag to look XML-y.
+    if (!/<\/[A-Za-z]/.test(t) && !/\/>/.test(t)) return null;
+
+    // Strict parse first; if it fails (e.g. redacted content like <<REDACTED>>), fall back to lenient mode.
+    let doc = null;
+    let strict = false;
+    try {
+      const parsed = new DOMParser().parseFromString(t, 'text/xml');
+      if (parsed && parsed.documentElement
+          && parsed.documentElement.nodeName !== 'parsererror'
+          && !parsed.getElementsByTagName('parsererror').length) {
+        doc = parsed;
+        strict = true;
+      }
+    } catch {}
+
+    let score;
+    if (strict) {
+      score = 0.85;
+      if (/xmlns/i.test(t)) score += 0.05;
+      if (doc.documentElement.tagName.includes(':')) score += 0.03;
+    } else {
+      // Lenient match — pretty-print, but skip DOM walking.
+      score = 0.72;
+    }
+
+    const cand = { score, label: 'XML' };
+    cand.render = async (opts = {}) => {
+      const findInner = opts.findInner !== false;
+      const pretty = formatXml(t);
+      lastCopyText = pretty;
+      const main = `<div class="dec-section">
+        <div class="dec-section-head">XML${strict ? '' : ' (lenient — parser flagged content as malformed)'}</div>
+        <div class="dec-section-body">${escapeHtml(pretty)}</div>
+      </div>`;
+      const finds = (findInner && doc) ? walkXmlForInner(doc) : [];
+      cand.innerCount = finds.length;
+      return main + await renderInnerFinds(finds);
+    };
+    return cand;
+  }
+
+  // Curated list of detectors safe to apply to inner strings (low false-positive rate).
+  // Excludes base64/hex/base32/rot13/timestamp/query-string/HTML-entities — too noisy on natural text.
+  const INNER_DETECTORS = [detectJwt, detectJson, detectXml, detectUri, detectUrlEncoded, detectGzip];
+  const INNER_MIN_SCORE = 0.7;
+
+  function detectBestInner(text) {
+    if (!text || text.length < 6) return null;
+    let best = null;
+    for (const fn of INNER_DETECTORS) {
+      try {
+        const c = fn(text);
+        if (!c) continue;
+        // Don't surface bare-number / bool / null JSON values as "inner bodies".
+        if (c.label === 'JSON' && !/^[\[{]/.test(text)) continue;
+        if (c.score >= INNER_MIN_SCORE && (!best || c.score > best.score)) best = c;
+      } catch {}
+    }
+    return best;
+  }
+
+  function walkJsonForInner(root) {
+    const finds = [];
+    function walk(node, path) {
+      if (typeof node === 'string') {
+        const c = detectBestInner(node.trim());
+        if (c) finds.push({ path, candidate: c });
+      } else if (Array.isArray(node)) {
+        node.forEach((v, i) => walk(v, `${path}[${i}]`));
+      } else if (node && typeof node === 'object') {
+        for (const [k, v] of Object.entries(node)) {
+          const key = /^[A-Za-z_$][\w$]*$/.test(k) ? `.${k}` : `[${JSON.stringify(k)}]`;
+          walk(v, `${path}${key}`);
+        }
+      }
+    }
+    walk(root, '$');
+    return finds;
+  }
+
+  function walkXmlForInner(doc) {
+    const finds = [];
+    const root = doc.documentElement;
+    if (!root) return finds;
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const c = detectBestInner(node.textContent.trim());
+      if (c) {
+        const parent = node.parentNode;
+        finds.push({ path: parent ? parent.nodeName : '#text', candidate: c });
+      }
+    }
+    return finds;
+  }
+
+  async function renderInnerFinds(finds) {
+    if (!finds.length) return '';
+    const saved = lastCopyText;
+    const parts = [];
+    for (const { path, candidate } of finds) {
+      let inner;
+      try {
+        inner = await candidate.render({ findInner: false });
+      } catch (e) {
+        inner = `<div class="dec-empty">Inner render failed: ${escapeHtml(e.message || String(e))}</div>`;
+      }
+      parts.push(`<div class="dec-inner">
+        <div class="dec-inner-head">inner<span class="sep">·</span><span class="path">${escapeHtml(path)}</span><span class="sep">·</span>${escapeHtml(candidate.label)}</div>
+        ${inner}
+      </div>`);
+    }
+    lastCopyText = saved;
+    return parts.join('');
+  }
+
+  // Registry — order matters only for ties; sort by score is the real driver.
   const detectors = [
-    detectJwt, detectJson, detectUri, detectGzip,
+    detectJwt, detectJson, detectXml, detectUri, detectGzip,
     detectUrlEncoded, detectHtmlEntities, detectQueryString,
     detectTimestamp, detectBase64, detectHex, detectBase32, detectRot13,
   ];
@@ -688,6 +885,9 @@
     }
     if (myToken !== renderToken) return;
     outputEl.innerHTML = html;
+    if (selected.innerCount > 0) {
+      statOutput.textContent += ` · ${selected.innerCount} inner`;
+    }
   }
 
   // ---------- persistence ----------
