@@ -354,6 +354,79 @@
     return cand;
   }
 
+  // JS/TS object literal: unquoted keys, single quotes, trailing commas, etc.
+  // Tolerates bare object bodies (no outer braces) and trailing-unclosed braces.
+  // Uses `new Function` — safe because the page runs locally and only the
+  // stringified, HTML-escaped result is rendered.
+  function balanceBraces(s) {
+    let opens = 0, closes = 0, inStr = null, esc = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (esc) { esc = false; continue; }
+      if (inStr) {
+        if (c === '\\') esc = true;
+        else if (c === inStr) inStr = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') inStr = c;
+      else if (c === '{') opens++;
+      else if (c === '}') closes++;
+    }
+    return opens - closes;
+  }
+
+  function detectJsObjectLiteral(input) {
+    const t = input.trim();
+    if (!t) return null;
+    // Skip if strict JSON already handles it.
+    try { JSON.parse(t); return null; } catch {}
+    // Must have at least one unquoted-key-style `ident:` pattern, otherwise
+    // this detector would chatter on random text.
+    if (!/(?:^|[{,\s])[A-Za-z_$][\w$]*\s*:/.test(t)) return null;
+
+    const variants = [];
+    const bare = !/^\s*[\[{(]/.test(t);
+    const variantBases = bare ? ['{' + t + '}'] : [t];
+    for (const base of variantBases) {
+      variants.push(base);
+      const diff = balanceBraces(base);
+      if (diff > 0) variants.push(base + '}'.repeat(diff));
+    }
+
+    let parsed = null;
+    for (const src of variants) {
+      try {
+        const v = new Function('"use strict"; return (' + src + ');')();
+        if (v && typeof v === 'object') { parsed = v; break; }
+      } catch {}
+    }
+    if (parsed === null) return null;
+
+    const cand = { score: 0.8, label: 'JS object' };
+    cand.render = async (opts = {}) => {
+      const findInner = opts.findInner !== false;
+      let serializable;
+      try {
+        // JSON.stringify drops functions/undefined/symbols; reparse to a
+        // plain JSON-equivalent tree.
+        serializable = JSON.parse(JSON.stringify(parsed));
+      } catch (e) {
+        lastCopyText = '';
+        return `<div class="dec-empty">Couldn't serialize to JSON: ${escapeHtml(e.message || String(e))}</div>`;
+      }
+      const pretty = JSON.stringify(serializable, null, 2);
+      lastCopyText = pretty;
+      const main = `<div class="dec-section">
+        <div class="dec-section-head">JS object → JSON</div>
+        <div class="dec-section-body">${escapeHtml(pretty)}</div>
+      </div>`;
+      const finds = findInner ? walkJsonForInner(serializable) : [];
+      cand.innerCount = finds.length;
+      return main + await renderInnerFinds(finds);
+    };
+    return cand;
+  }
+
   function detectJwt(input) {
     const t = input.trim();
     if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) return null;
@@ -803,7 +876,7 @@
 
   // Registry — order matters only for ties; sort by score is the real driver.
   const detectors = [
-    detectJwt, detectJson, detectXml, detectUri, detectGzip,
+    detectJwt, detectJson, detectJsObjectLiteral, detectXml, detectUri, detectGzip,
     detectUrlEncoded, detectHtmlEntities, detectQueryString,
     detectTimestamp, detectBase64, detectHex, detectBase32, detectRot13,
   ];
