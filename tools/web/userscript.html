@@ -280,13 +280,40 @@ btnShare.addEventListener('click', async () => {
   }
 });
 
-btnInstall.addEventListener('click', () => {
+btnInstall.addEventListener('click', async () => {
   const script = inputEl.value;
   if (!script.trim()) return;
-  const blob = new Blob([script], { type: 'application/x-userscript' });
-  const url = URL.createObjectURL(blob);
-  window.open(url);
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+  const swSupported = 'serviceWorker' in navigator;
+  if (!swSupported) {
+    const blob = new Blob([script], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'script.user.js';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return;
+  }
+
+  const origText = btnInstall.textContent;
+  btnInstall.textContent = 'Preparing…';
+  btnInstall.disabled = true;
+
+  try {
+    await navigator.serviceWorker.ready;
+    const installUrl = new URL('./script.user.js', window.location.href).href;
+    const cache = await caches.open('userscript-install');
+    await cache.put(installUrl, new Response(script, {
+      headers: { 'Content-Type': 'application/javascript' }
+    }));
+    window.open(installUrl, '_blank');
+  } finally {
+    btnInstall.textContent = origText;
+    btnInstall.disabled = !inputEl.value.trim();
+  }
 });
 
 btnClear.addEventListener('click', () => {
@@ -297,6 +324,10 @@ btnClear.addEventListener('click', () => {
   onInput();
   inputEl.focus();
 });
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js');
+}
 
 loadFromUrl();
 onInput();
