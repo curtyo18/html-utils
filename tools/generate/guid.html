@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>guid · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  .opts { display: flex; align-items: center; gap: 12px; }
+  .opt {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+    cursor: pointer; user-select: none;
+  }
+  .opt input[type="checkbox"] {
+    appearance: none; width: 14px; height: 14px;
+    background: var(--bg-2); border: 1px solid var(--border-strong);
+    border-radius: 3px; cursor: pointer; position: relative; margin: 0;
+  }
+  .opt input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+  .opt input[type="checkbox"]:checked::after {
+    content: ""; position: absolute; left: 3px; top: 0px;
+    width: 5px; height: 9px; border: solid #1a1208;
+    border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  .opt:hover { color: var(--text); }
+  .opt-sep { width: 1px; height: 16px; background: var(--border); }
+  .batch-wrap {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+  }
+  .batch-input {
+    width: 52px; background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--r-sm); color: var(--text); font-family: var(--mono);
+    font-size: 12px; padding: 2px 6px; outline: none; text-align: center;
+  }
+  .batch-input:focus { border-color: var(--border-strong); }
+  .guid-body {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 40px 24px; gap: 20px;
+  }
+  .guid-single {
+    font-family: var(--mono); font-size: 28px; color: var(--text);
+    letter-spacing: 0.04em; user-select: all; text-align: center; word-break: break-all;
+  }
+  .guid-batch {
+    width: 100%; max-width: 640px; resize: none;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--r); color: var(--text); font-family: var(--mono);
+    font-size: 14px; padding: 14px; outline: none; flex: 1; min-height: 120px;
+  }
+  .guid-stat { font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>generate</span><span class="sep">/</span>
+      <span class="current">guid</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">UUID v4 generator</div>
+  </header>
+
+  <div class="toolbar">
+    <div class="batch-wrap">
+      <span>count</span>
+      <input type="number" class="batch-input" id="batch-count" min="1" max="100" value="1">
+    </div>
+    <span class="opt-sep"></span>
+    <div class="opts">
+      <label class="opt"><input type="checkbox" id="opt-hyphens" checked>hyphens</label>
+      <label class="opt"><input type="checkbox" id="opt-upper">UPPERCASE</label>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn primary" id="btn-generate">generate</button>
+    <button class="btn ghost" id="btn-copy">copy</button>
+  </div>
+
+  <main class="main">
+    <div class="guid-body">
+      <div class="guid-single" id="guid-single"></div>
+      <textarea class="guid-batch" id="guid-batch" readonly style="display:none;"></textarea>
+      <span class="guid-stat" id="guid-stat"></span>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const batchCount  = document.getElementById('batch-count');
+  const optHyphens  = document.getElementById('opt-hyphens');
+  const optUpper    = document.getElementById('opt-upper');
+  const btnGenerate = document.getElementById('btn-generate');
+  const btnCopy     = document.getElementById('btn-copy');
+  const guidSingle  = document.getElementById('guid-single');
+  const guidBatch   = document.getElementById('guid-batch');
+  const guidStat    = document.getElementById('guid-stat');
+  const toast       = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:guid';
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (typeof saved.hyphens === 'boolean') optHyphens.checked = saved.hyphens;
+    if (typeof saved.upper === 'boolean')   optUpper.checked = saved.upper;
+    if (saved.count) batchCount.value = Math.min(100, Math.max(1, Number(saved.count)));
+  } catch {}
+
+  function formatUuid(raw) {
+    let u = raw;
+    if (!optHyphens.checked) u = u.replace(/-/g, '');
+    if (optUpper.checked) u = u.toUpperCase();
+    return u;
+  }
+
+  function generate() {
+    const n = Math.min(100, Math.max(1, parseInt(batchCount.value, 10) || 1));
+    const uuids = Array.from({ length: n }, () => formatUuid(crypto.randomUUID()));
+    const single = n === 1;
+    guidSingle.style.display = single ? '' : 'none';
+    guidBatch.style.display  = single ? 'none' : '';
+    if (single) { guidSingle.textContent = uuids[0]; }
+    else { guidBatch.value = uuids.join('\n'); }
+    guidStat.textContent = `${n} UUID${n !== 1 ? 's' : ''} generated`;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ hyphens: optHyphens.checked, upper: optUpper.checked, count: n }));
+    } catch {}
+  }
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1400);
+  }
+
+  btnGenerate.addEventListener('click', generate);
+  [optHyphens, optUpper].forEach(el => el.addEventListener('change', generate));
+  batchCount.addEventListener('change', generate);
+
+  btnCopy.addEventListener('click', async () => {
+    const text = parseInt(batchCount.value, 10) <= 1 ? guidSingle.textContent : guidBatch.value;
+    if (!text) { showToast('nothing to copy'); return; }
+    try { await navigator.clipboard.writeText(text); showToast('copied'); }
+    catch { showToast('copy failed'); }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); generate(); }
+  });
+
+  generate();
+})();
+</script>
+</body>
+</html>
