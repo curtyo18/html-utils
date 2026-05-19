@@ -290,9 +290,18 @@ btnShare.addEventListener('click', async () => {
   }
 });
 
+const WORKER_URL = null; // e.g. 'https://html-utils-install.yourname.workers.dev'
+
 btnInstall.addEventListener('click', () => {
   const script = inputEl.value;
   if (!script.trim()) return;
+
+  if (WORKER_URL) {
+    const compressed = LZString.compressToEncodedURIComponent(script);
+    window.open(`${WORKER_URL}/script.user.js?s=${compressed}`, '_blank');
+    return;
+  }
+
   const blob = new Blob([script], { type: 'application/javascript' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
