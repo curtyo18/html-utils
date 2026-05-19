@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>regex · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  .pattern-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+  }
+  .pattern-wrap {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 0 10px;
+    gap: 6px;
+  }
+  .pattern-wrap.error { border-color: var(--del); }
+  .pattern-slash {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 14px;
+    user-select: none;
+  }
+  .pattern-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 6px 0;
+  }
+  .pattern-input::placeholder { color: var(--text-faint); }
+  .pattern-error {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--del);
+    white-space: nowrap;
+  }
+  .opts {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .opt input[type="checkbox"] {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    margin: 0;
+  }
+  .opt input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+  .opt input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px; top: 0px;
+    width: 5px; height: 9px;
+    border: solid #1a1208;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .opt:hover { color: var(--text); }
+  .opt-sep { width: 1px; height: 16px; background: var(--border); }
+  #replace-row {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--bg-1);
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+  #replace-row.visible { display: flex; }
+  .replace-input {
+    flex: 1;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 8px;
+    outline: none;
+  }
+  .replace-input:focus { border-color: var(--border-strong); }
+  .replace-input::placeholder { color: var(--text-faint); }
+  .output-view {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+    padding: 10px 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .output-view mark {
+    background: var(--accent);
+    color: #1a1208;
+    border-radius: 2px;
+  }
+  .output-view .match-num {
+    font-size: 9px;
+    color: var(--accent-dim);
+    vertical-align: super;
+    margin-left: 1px;
+    user-select: none;
+  }
+  .output-empty { color: var(--text-faint); font-style: italic; }
+  .match-list {
+    border-top: 1px solid var(--border);
+    background: var(--bg-1);
+    overflow: auto;
+    max-height: 180px;
+    font-family: var(--mono);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .match-list-empty {
+    padding: 8px 14px;
+    color: var(--text-faint);
+    font-style: italic;
+  }
+  .match-item {
+    display: flex;
+    gap: 12px;
+    padding: 4px 14px;
+    border-bottom: 1px solid var(--border);
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .match-item:last-child { border-bottom: none; }
+  .match-idx { color: var(--text-faint); min-width: 24px; font-size: 11px; }
+  .match-text { color: var(--accent); word-break: break-all; }
+  .match-pos { color: var(--text-faint); font-size: 11px; white-space: nowrap; }
+  .match-groups { color: var(--text-dim); font-size: 11px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .group-label { color: var(--text-faint); }
+  .match-more { padding: 4px 14px; color: var(--text-faint); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>inspect</span><span class="sep">/</span>
+      <span class="current">regex</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta" id="meta">0 matches</div>
+  </header>
+
+  <div class="toolbar">
+    <div class="pattern-row">
+      <div class="pattern-wrap" id="pattern-wrap">
+        <span class="pattern-slash">/</span>
+        <input class="pattern-input" id="pattern" spellcheck="false" autocomplete="off" placeholder="pattern">
+        <span class="pattern-slash">/</span>
+        <span class="pattern-error" id="pattern-error"></span>
+      </div>
+      <div class="opts">
+        <label class="opt"><input type="checkbox" id="flag-g" checked>g</label>
+        <label class="opt"><input type="checkbox" id="flag-i">i</label>
+        <label class="opt"><input type="checkbox" id="flag-m">m</label>
+        <label class="opt"><input type="checkbox" id="flag-s">s</label>
+        <span class="opt-sep"></span>
+        <label class="opt"><input type="checkbox" id="opt-replace">replace</label>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+  </div>
+
+  <div id="replace-row">
+    <span>replace with</span>
+    <input class="replace-input" id="replace-template" spellcheck="false" placeholder="$&amp;, $1, $2, …">
+  </div>
+
+  <main class="main" style="flex-direction:column;">
+    <div class="panes two" style="flex:1;min-height:0;">
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">test string</span>
+          <span class="pane-stat" id="stat-in">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="test-string" spellcheck="false"
+            placeholder="Paste text to test against…"></textarea>
+        </div>
+      </section>
+      <section class="pane" style="display:flex;flex-direction:column;min-height:0;">
+        <div class="pane-head">
+          <span class="pane-title" id="output-title">matches</span>
+          <span class="pane-stat" id="stat-out"></span>
+        </div>
+        <div class="output-view" id="output-view"></div>
+      </section>
+    </div>
+    <div class="match-list" id="match-list">
+      <div class="match-list-empty">No matches.</div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const patternEl    = document.getElementById('pattern');
+  const patternWrap  = document.getElementById('pattern-wrap');
+  const patternErr   = document.getElementById('pattern-error');
+  const flagG        = document.getElementById('flag-g');
+  const flagI        = document.getElementById('flag-i');
+  const flagM        = document.getElementById('flag-m');
+  const flagS        = document.getElementById('flag-s');
+  const optReplace   = document.getElementById('opt-replace');
+  const replaceRow   = document.getElementById('replace-row');
+  const replaceTpl   = document.getElementById('replace-template');
+  const testStringEl = document.getElementById('test-string');
+  const outputView   = document.getElementById('output-view');
+  const outputTitle  = document.getElementById('output-title');
+  const statIn       = document.getElementById('stat-in');
+  const statOut      = document.getElementById('stat-out');
+  const metaEl       = document.getElementById('meta');
+  const matchList    = document.getElementById('match-list');
+  const btnClear     = document.getElementById('btn-clear');
+
+  const STORAGE_KEY = 'html-utils:regex';
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (saved.pattern)    patternEl.value = saved.pattern;
+    if (saved.testString) testStringEl.value = saved.testString;
+    if (saved.replaceTpl) replaceTpl.value = saved.replaceTpl;
+    if (typeof saved.g === 'boolean') flagG.checked = saved.g;
+    if (typeof saved.i === 'boolean') flagI.checked = saved.i;
+    if (typeof saved.m === 'boolean') flagM.checked = saved.m;
+    if (typeof saved.s === 'boolean') flagS.checked = saved.s;
+    if (typeof saved.replace === 'boolean') {
+      optReplace.checked = saved.replace;
+      replaceRow.classList.toggle('visible', saved.replace);
+    }
+  } catch {}
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function buildFlags() {
+    let f = '';
+    if (flagG.checked) f += 'g';
+    if (flagI.checked) f += 'i';
+    if (flagM.checked) f += 'm';
+    if (flagS.checked) f += 's';
+    return f;
+  }
+
+  function buildRegex() {
+    const p = patternEl.value;
+    if (!p) return { regex: null, error: null };
+    try {
+      return { regex: new RegExp(p, buildFlags()), error: null };
+    } catch (e) {
+      return { regex: null, error: e.message };
+    }
+  }
+
+  function runMatches(regex, text) {
+    const matches = [];
+    if (regex.global) {
+      let m;
+      regex.lastIndex = 0;
+      while ((m = regex.exec(text)) !== null) {
+        matches.push({ index: m.index, value: m[0], groups: [...m].slice(1), namedGroups: m.groups || null });
+        if (m[0].length === 0) regex.lastIndex++;
+        if (matches.length > 500) break;
+      }
+    } else {
+      const m = regex.exec(text);
+      if (m) matches.push({ index: m.index, value: m[0], groups: [...m].slice(1), namedGroups: m.groups || null });
+    }
+    return matches;
+  }
+
+  function renderHighlighted(text, matches) {
+    if (!matches.length) return escapeHtml(text);
+    let out = '', pos = 0;
+    const showNums = matches.length > 1;
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      out += escapeHtml(text.slice(pos, m.index));
+      out += `<mark>${escapeHtml(m.value)}${showNums ? `<span class="match-num">${i + 1}</span>` : ''}</mark>`;
+      pos = m.index + m.value.length;
+    }
+    out += escapeHtml(text.slice(pos));
+    return out;
+  }
+
+  function renderMatchList(matches) {
+    if (!matches.length) {
+      matchList.innerHTML = '<div class="match-list-empty">No matches.</div>';
+      return;
+    }
+    const LIMIT = 50;
+    const shown = matches.slice(0, LIMIT);
+    let html = shown.map((m, i) => {
+      let groupsHtml = '';
+      if (m.namedGroups && Object.keys(m.namedGroups).length) {
+        groupsHtml = '<div class="match-groups">' +
+          Object.entries(m.namedGroups).map(([k, v]) =>
+            `<span><span class="group-label">${escapeHtml(k)}:</span> ${escapeHtml(v ?? '(null)')}</span>`
+          ).join('') + '</div>';
+      } else if (m.groups.length) {
+        groupsHtml = '<div class="match-groups">' +
+          m.groups.map((g, gi) =>
+            `<span><span class="group-label">$${gi + 1}:</span> ${escapeHtml(g ?? '(null)')}</span>`
+          ).join('') + '</div>';
+      }
+      return `<div class="match-item">
+        <span class="match-idx">${i + 1}</span>
+        <span class="match-text">${escapeHtml(m.value || '(empty)')}</span>
+        <span class="match-pos">@${m.index}</span>
+        ${groupsHtml}
+      </div>`;
+    }).join('');
+    if (matches.length > LIMIT) html += `<div class="match-more">… ${matches.length - LIMIT} more</div>`;
+    matchList.innerHTML = html;
+  }
+
+  function update() {
+    const text = testStringEl.value;
+    const { regex, error } = buildRegex();
+    const replaceMode = optReplace.checked;
+
+    statIn.textContent = `${text.length} chars`;
+
+    if (error) {
+      patternWrap.classList.add('error');
+      patternErr.textContent = error;
+      outputView.innerHTML = '';
+      matchList.innerHTML = '<div class="match-list-empty">No matches.</div>';
+      metaEl.textContent = 'invalid';
+      statOut.textContent = '';
+      return;
+    }
+    patternWrap.classList.remove('error');
+    patternErr.textContent = '';
+
+    if (!regex || !text) {
+      outputView.innerHTML = text ? `<span class="output-empty">${escapeHtml(text)}</span>` : '';
+      matchList.innerHTML = '<div class="match-list-empty">No matches.</div>';
+      metaEl.textContent = '0 matches';
+      statOut.textContent = '';
+      return;
+    }
+
+    const matches = runMatches(regex, text);
+
+    if (replaceMode) {
+      outputTitle.textContent = 'replaced';
+      try {
+        const replaced = text.replace(regex, replaceTpl.value);
+        outputView.textContent = replaced;
+      } catch (e) {
+        outputView.innerHTML = `<span class="output-empty">Replace error: ${escapeHtml(e.message)}</span>`;
+      }
+      statOut.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''} replaced`;
+    } else {
+      outputTitle.textContent = 'matches';
+      outputView.innerHTML = renderHighlighted(text, matches) || `<span class="output-empty">(empty string)</span>`;
+      statOut.textContent = matches.length ? `${matches.length} match${matches.length !== 1 ? 'es' : ''}` : '';
+    }
+
+    renderMatchList(matches);
+    metaEl.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        pattern: patternEl.value, testString: text,
+        replaceTpl: replaceTpl.value,
+        g: flagG.checked, i: flagI.checked, m: flagM.checked, s: flagS.checked,
+        replace: replaceMode,
+      }));
+    } catch {}
+  }
+
+  patternEl.addEventListener('input', update);
+  testStringEl.addEventListener('input', update);
+  replaceTpl.addEventListener('input', update);
+  [flagG, flagI, flagM, flagS].forEach(el => el.addEventListener('change', update));
+  optReplace.addEventListener('change', () => {
+    replaceRow.classList.toggle('visible', optReplace.checked);
+    outputTitle.textContent = optReplace.checked ? 'replaced' : 'matches';
+    update();
+  });
+
+  btnClear.addEventListener('click', () => {
+    patternEl.value = '';
+    testStringEl.value = '';
+    replaceTpl.value = '';
+    update();
+    patternEl.focus();
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>
