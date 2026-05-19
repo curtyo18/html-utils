@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>userscript · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1/libs/lz-string.min.js"></script>
+<style>
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
+    grid-template-areas: "input output";
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  .layout > .input-pane  { grid-area: input; }
+  .layout > .output-pane { grid-area: output; }
+
+  @media (max-width: 760px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+      grid-template-areas: "input" "output";
+    }
+    .input-pane .pane-body { height: 200px; }
+  }
+
+  .output-scroll {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .meta-card {
+    padding: 18px 22px;
+  }
+  .meta-card.empty {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-style: italic;
+  }
+  .meta-name {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 4px;
+  }
+  .meta-desc {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: 0 0 14px;
+    line-height: 1.5;
+  }
+  .meta-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .meta-key {
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 10px;
+    min-width: 72px;
+    padding-top: 1px;
+  }
+  .meta-val { color: var(--text-dim); }
+
+  .output-divider {
+    height: 1px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .action-area {
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .url-warning {
+    display: none;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--del);
+    background: var(--del-bg);
+    border: 1px solid var(--del);
+    border-radius: var(--r);
+    padding: 6px 10px;
+  }
+  .url-warning.show { display: block; }
+
+  .error-banner {
+    display: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--del);
+    background: var(--del-bg);
+    border: 1px solid var(--del);
+    border-radius: var(--r);
+    padding: 8px 14px;
+    margin: 12px 22px 0;
+    flex-shrink: 0;
+  }
+  .error-banner.show { display: block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>web</span><span class="sep">/</span>
+      <span class="current">userscript</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste · share · install</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="label">userscript</span>
+    <div class="spacer"></div>
+    <span class="label" id="stat-chars">0 chars</span>
+    <button class="btn ghost" id="btn-clear">clear</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <section class="pane input-pane">
+        <div class="pane-head">
+          <span class="pane-title">script</span>
+          <span class="pane-stat" id="stat-lines">0 lines</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false"
+            placeholder="// ==UserScript==&#10;// @name     My Script&#10;// @match    https://example.com/*&#10;// ==/UserScript==&#10;&#10;console.log('hello');"></textarea>
+        </div>
+      </section>
+
+      <section class="pane output-pane">
+        <div class="pane-head">
+          <span class="pane-title">preview</span>
+        </div>
+        <div id="error-banner" class="error-banner"></div>
+        <div class="output-scroll">
+          <div id="meta-card" class="meta-card empty">No metadata found</div>
+          <div class="output-divider"></div>
+          <div class="action-area">
+            <div id="url-warning" class="url-warning">
+              Share link may be too long for some platforms.
+            </div>
+            <button class="btn primary" id="btn-share">Copy share link</button>
+            <button class="btn" id="btn-install" disabled>Install with Tampermonkey</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { parseUserscriptMeta, isShareUrlTooLong } from '../../scripts/userscript-utils.mjs';
+
+const inputEl     = document.getElementById('input');
+const metaCard    = document.getElementById('meta-card');
+const errorBanner = document.getElementById('error-banner');
+const statChars   = document.getElementById('stat-chars');
+const statLines   = document.getElementById('stat-lines');
+const urlWarning  = document.getElementById('url-warning');
+const btnShare    = document.getElementById('btn-share');
+const btnInstall  = document.getElementById('btn-install');
+const btnClear    = document.getElementById('btn-clear');
+const toast       = document.getElementById('toast');
+
+function renderMeta(script) {
+  const meta = parseUserscriptMeta(script);
+  if (!meta) {
+    metaCard.className = 'meta-card empty';
+    metaCard.textContent = 'No metadata found';
+    return;
+  }
+  const rows = [
+    meta.version && { key: 'version', val: meta.version },
+    meta.author  && { key: 'author',  val: meta.author },
+    meta.match   && { key: 'match',   val: meta.match },
+  ].filter(Boolean);
+
+  metaCard.className = 'meta-card';
+  metaCard.innerHTML = `
+    ${meta.name        ? `<p class="meta-name">${esc(meta.name)}</p>` : ''}
+    ${meta.description ? `<p class="meta-desc">${esc(meta.description)}</p>` : ''}
+    ${rows.map(r => `
+      <div class="meta-row">
+        <span class="meta-key">${esc(r.key)}</span>
+        <span class="meta-val">${esc(r.val)}</span>
+      </div>`).join('')}
+  `.trim() || '<span style="color:var(--text-faint);font-style:italic">No metadata found</span>';
+}
+
+function esc(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function updateStats(script) {
+  statChars.textContent = `${script.length} chars`;
+  statLines.textContent = `${script ? script.split('\n').length : 0} lines`;
+  btnInstall.disabled = !script.trim();
+}
+
+function loadFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const s = params.get('s');
+  if (!s) return;
+  try {
+    const script = LZString.decompressFromEncodedURIComponent(s);
+    if (!script) throw new Error('empty decompression result');
+    inputEl.value = script;
+  } catch {
+    errorBanner.textContent = 'Could not load shared script — link may be corrupted.';
+    errorBanner.classList.add('show');
+  }
+}
+
+function onInput() {
+  const script = inputEl.value;
+  updateStats(script);
+  renderMeta(script);
+}
+
+inputEl.addEventListener('input', onInput);
+
+let _toastTimer;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+}
+
+btnShare.addEventListener('click', async () => {
+  const script = inputEl.value;
+  if (!script.trim()) {
+    showToast('nothing to share');
+    return;
+  }
+  const compressed = LZString.compressToEncodedURIComponent(script);
+  const baseUrl = window.location.origin + window.location.pathname;
+  const fullUrl = baseUrl + '?s=' + compressed;
+
+  if (isShareUrlTooLong(compressed, baseUrl)) {
+    urlWarning.classList.add('show');
+  } else {
+    urlWarning.classList.remove('show');
+  }
+
+  window.history.replaceState(null, '', '?s=' + compressed);
+
+  try {
+    await navigator.clipboard.writeText(fullUrl);
+    const origText = btnShare.textContent;
+    btnShare.textContent = 'Copied!';
+    setTimeout(() => { btnShare.textContent = origText; }, 1500);
+  } catch {
+    prompt('Copy this share link:', fullUrl);
+  }
+});
+
+btnInstall.addEventListener('click', () => {
+  const script = inputEl.value;
+  if (!script.trim()) return;
+  const blob = new Blob([script], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'script.user.js';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+btnClear.addEventListener('click', () => {
+  inputEl.value = '';
+  window.history.replaceState(null, '', window.location.pathname);
+  urlWarning.classList.remove('show');
+  errorBanner.classList.remove('show');
+  onInput();
+  inputEl.focus();
+});
+
+loadFromUrl();
+onInput();
+</script>
+</body>
+</html>

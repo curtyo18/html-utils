@@ -35,6 +35,9 @@ jobs:
       - name: Run scanner tests
         run: node --test scripts/build-manifest.test.mjs
 
+      - name: Run userscript utils tests
+        run: node --test scripts/userscript-utils.test.mjs
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
