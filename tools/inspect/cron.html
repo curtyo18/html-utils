@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cron · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  .cron-input-wrap { flex: 1; display: flex; align-items: center; gap: 10px; }
+  .cron-input {
+    flex: 1;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 6px 12px;
+    outline: none;
+    transition: border-color 120ms;
+  }
+  .cron-input:focus { border-color: var(--border-strong); }
+  .cron-input::placeholder { color: var(--text-faint); font-size: 12px; }
+  .cron-error { font-family: var(--mono); font-size: 11px; color: var(--del); white-space: nowrap; }
+  .cron-body {
+    flex: 1;
+    overflow: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .cron-card {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .cron-card-head {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+  }
+  .cron-card-body { padding: 14px; }
+  .cron-desc { font-family: var(--sans); font-size: 16px; color: var(--text); line-height: 1.5; }
+  .cron-desc.empty { color: var(--text-faint); font-size: 14px; font-style: italic; font-family: var(--mono); }
+  .field-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  .field-table th {
+    text-align: left; color: var(--text-faint); font-weight: normal;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 0 10px 8px 0; border-bottom: 1px solid var(--border);
+  }
+  .field-table td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .field-table tr:last-child td { border-bottom: none; }
+  .field-name { color: var(--text-faint); }
+  .field-value { color: var(--accent); }
+  .field-meaning { color: var(--text-dim); }
+  .fire-list { display: flex; flex-direction: column; gap: 5px; }
+  .fire-item { display: flex; gap: 14px; font-family: var(--mono); font-size: 12px; align-items: baseline; }
+  .fire-idx { color: var(--text-faint); min-width: 20px; font-size: 11px; }
+  .fire-utc { color: var(--text); }
+  .fire-rel { color: var(--text-faint); }
+  .fire-none { color: var(--text-faint); font-style: italic; font-family: var(--mono); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>inspect</span><span class="sep">/</span>
+      <span class="current">cron</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste · explain</div>
+  </header>
+
+  <div class="toolbar">
+    <div class="cron-input-wrap">
+      <input class="cron-input" id="cron-input" spellcheck="false" autocomplete="off"
+        placeholder="* * * * *   (minute  hour  dom  month  dow)">
+      <span class="cron-error" id="cron-error"></span>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+  </div>
+
+  <main class="main" style="overflow:hidden;">
+    <div class="cron-body">
+      <div class="cron-card">
+        <div class="cron-card-head">description</div>
+        <div class="cron-card-body">
+          <div class="cron-desc empty" id="desc-text">Enter a cron expression above.</div>
+        </div>
+      </div>
+      <div class="cron-card" id="card-fields" style="display:none;">
+        <div class="cron-card-head">fields</div>
+        <div class="cron-card-body">
+          <table class="field-table">
+            <thead><tr><th>field</th><th>value</th><th>meaning</th></tr></thead>
+            <tbody id="fields-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="cron-card" id="card-fires" style="display:none;">
+        <div class="cron-card-head">next 10 fires</div>
+        <div class="cron-card-body"><div class="fire-list" id="fire-list"></div></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const cronInput  = document.getElementById('cron-input');
+  const cronError  = document.getElementById('cron-error');
+  const descText   = document.getElementById('desc-text');
+  const cardFields = document.getElementById('card-fields');
+  const cardFires  = document.getElementById('card-fires');
+  const fieldsBody = document.getElementById('fields-body');
+  const fireList   = document.getElementById('fire-list');
+  const btnClear   = document.getElementById('btn-clear');
+
+  const STORAGE_KEY = 'html-utils:cron';
+
+  const SPECIAL = {
+    '@yearly':'0 0 1 1 *', '@annually':'0 0 1 1 *',
+    '@monthly':'0 0 1 * *', '@weekly':'0 0 * * 0',
+    '@daily':'0 0 * * *', '@midnight':'0 0 * * *', '@hourly':'0 * * * *',
+  };
+  const MONTH_NAMES = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  const DOW_NAMES   = {sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+  const MONTH_LABELS= ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DOW_LABELS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+  function substituteNames(s, map) {
+    return s.replace(/[a-z]+/gi, m => { const v = map[m.toLowerCase()]; return v !== undefined ? String(v) : m; });
+  }
+
+  function parseField(str, min, max, nameMap) {
+    str = substituteNames(str, nameMap || {});
+    const result = new Set();
+    for (const part of str.split(',')) {
+      if (part === '*') {
+        for (let i = min; i <= max; i++) result.add(i);
+      } else if (part.includes('/')) {
+        const [range, stepStr] = part.split('/');
+        const step = parseInt(stepStr, 10);
+        if (isNaN(step) || step < 1) throw new Error(`invalid step: ${stepStr}`);
+        let start = min, end = max;
+        if (range !== '*') {
+          if (range.includes('-')) { [start, end] = range.split('-').map(Number); }
+          else { start = parseInt(range, 10); }
+        }
+        for (let i = start; i <= end; i += step) { if (i >= min && i <= max) result.add(i); }
+      } else if (part.includes('-')) {
+        const [s, e] = part.split('-').map(Number);
+        for (let i = s; i <= e; i++) { if (i >= min && i <= max) result.add(i); }
+      } else {
+        const n = parseInt(part, 10);
+        if (isNaN(n)) throw new Error(`invalid value: ${part}`);
+        if (n >= min && n <= max) result.add(n);
+      }
+    }
+    return result;
+  }
+
+  function parseCron(expr) {
+    const trimmed = expr.trim().toLowerCase();
+    const expanded = SPECIAL[trimmed] || expr.trim();
+    if (/[lw#]/i.test(expanded)) throw new Error('L, W, # syntax not supported');
+    const parts = expanded.split(/\s+/);
+    if (parts.length !== 5 && parts.length !== 6) throw new Error('expected 5 or 6 fields');
+    const is6 = parts.length === 6;
+    const [minStr, hrStr, domStr, monStr, dowStr] = is6 ? parts.slice(1) : parts;
+    const secStr = is6 ? parts[0] : null;
+    return {
+      is6,
+      seconds: secStr ? parseField(secStr, 0, 59, {}) : null,
+      minutes: parseField(minStr, 0, 59, {}),
+      hours:   parseField(hrStr,  0, 23, {}),
+      doms:    parseField(domStr, 1, 31, {}),
+      months:  parseField(monStr, 1, 12, MONTH_NAMES),
+      dows:    parseField(dowStr, 0,  7, DOW_NAMES),
+      raw:     { sec: secStr, min: minStr, hr: hrStr, dom: domStr, mon: monStr, dow: dowStr },
+    };
+  }
+
+  function nextFireTimes(parsed, count) {
+    const fires = [];
+    const MAX = 366 * 24 * 60 * 4;
+    const step = parsed.is6 ? 1000 : 60000;
+    let d = new Date();
+    d.setMilliseconds(0);
+    if (parsed.is6) { d.setSeconds(d.getSeconds() + 1); }
+    else { d.setSeconds(0); d.setMinutes(d.getMinutes() + 1); }
+    for (let i = 0; i < MAX && fires.length < count; i++) {
+      const mon = d.getMonth() + 1, dom = d.getDate(), dow = d.getDay();
+      const hr = d.getHours(), min = d.getMinutes(), sec = d.getSeconds();
+      const dowOk = parsed.dows.has(dow) || parsed.dows.has(dow === 0 ? 7 : dow);
+      const secOk = parsed.is6 ? parsed.seconds.has(sec) : true;
+      if (parsed.months.has(mon) && parsed.doms.has(dom) && dowOk &&
+          parsed.hours.has(hr) && parsed.minutes.has(min) && secOk) {
+        fires.push(new Date(d));
+      }
+      d = new Date(d.getTime() + step);
+    }
+    return fires;
+  }
+
+  function formatRelative(ms) {
+    const diff = ms - Date.now(), abs = Math.abs(diff);
+    const min = Math.round(abs / 60000), hr = Math.round(min / 60), day = Math.round(hr / 24);
+    let val, unit;
+    if (min < 1) { val = Math.round(abs/1000); unit = 'second'; }
+    else if (hr < 1) { val = min; unit = 'minute'; }
+    else if (day < 2) { val = hr; unit = 'hour'; }
+    else { val = day; unit = 'day'; }
+    return `in ${val} ${unit}${val !== 1 ? 's' : ''}`;
+  }
+
+  function fieldMeaning(str, info) {
+    const s = str.trim();
+    if (s === '*') return `every ${info.unit}`;
+    if (/^\*\/\d+$/.test(s)) return `every ${s.slice(2)} ${info.units}`;
+    if (/^\d+-\d+$/.test(s)) {
+      const [a, b] = s.split('-');
+      const al = info.labels ? (info.labels[+a] || a) : a;
+      const bl = info.labels ? (info.labels[+b] || b) : b;
+      return `${al} through ${bl}`;
+    }
+    if (s.includes(',')) return `${s.split(',').map(v => info.labels?.[+v] || v).join(', ')}`;
+    return info.labels?.[parseInt(s,10)] || `${info.unit} ${s}`;
+  }
+
+  function buildDescription(parsed) {
+    const r = parsed.raw;
+    if (r.min==='*'&&r.hr==='*'&&r.dom==='*'&&r.mon==='*'&&r.dow==='*') return 'Every minute.';
+    if (r.min==='0'&&r.hr==='*'&&r.dom==='*'&&r.mon==='*'&&r.dow==='*') return 'At the start of every hour.';
+    if (r.min==='0'&&r.hr==='0'&&r.dom==='*'&&r.mon==='*'&&r.dow==='*') return 'At midnight every day.';
+
+    const parts = [];
+    if (r.min==='*') parts.push('every minute');
+    else if (/^\*\/\d+$/.test(r.min)) parts.push(`every ${r.min.slice(2)} minutes`);
+    else if (r.min !== '0') parts.push(`at minute ${r.min}`);
+
+    if (r.hr === '*') {
+      if (r.min !== '*' && !/^\*\//.test(r.min)) parts.push('of every hour');
+    } else if (/^\*\/\d+$/.test(r.hr)) {
+      parts.push(`every ${r.hr.slice(2)} hours`);
+    } else if (r.hr.includes('-')) {
+      const [s,e] = r.hr.split('-');
+      parts.push(`between ${s.padStart(2,'0')}:00 and ${e.padStart(2,'0')}:59`);
+    } else {
+      const h = parseInt(r.hr,10), m = r.min==='0' ? '00' : r.min;
+      parts.push(`at ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+    }
+
+    if (r.dow !== '*') {
+      if (r.dow==='1-5') parts.push('on weekdays (Mon–Fri)');
+      else if (r.dow==='0,6'||r.dow==='6,0'||r.dow==='0-6/6') parts.push('on weekends');
+      else {
+        const days = [...parsed.dows].sort((a,b)=>a-b).map(d => DOW_LABELS[d]);
+        parts.push('on ' + (days.length > 1
+          ? days.slice(0,-1).join(', ') + ' and ' + days.slice(-1)
+          : days[0]));
+      }
+    }
+
+    if (r.dom !== '*') {
+      parts.push(`on day ${r.dom} of`);
+      parts.push(r.mon === '*' ? 'every month' : [...parsed.months].map(m=>MONTH_LABELS[m]).join(', '));
+    } else if (r.mon !== '*') {
+      parts.push('in ' + [...parsed.months].map(m=>MONTH_LABELS[m]).join(', '));
+    }
+
+    const s = parts.join(' ');
+    return s.charAt(0).toUpperCase() + s.slice(1) + '.';
+  }
+
+  function renderFields(parsed) {
+    const r = parsed.raw;
+    const defs = [
+      { name:'minute', value:r.min, unit:'minute', units:'minutes', labels:null },
+      { name:'hour',   value:r.hr,  unit:'hour',   units:'hours',   labels:null },
+      { name:'dom',    value:r.dom,  unit:'day',   units:'days',    labels:null },
+      { name:'month',  value:r.mon,  unit:'month', units:'months',  labels:MONTH_LABELS },
+      { name:'dow',    value:r.dow,  unit:'weekday',units:'weekdays',labels:DOW_LABELS },
+    ];
+    if (parsed.is6) defs.unshift({ name:'second', value:r.sec||'?', unit:'second', units:'seconds', labels:null });
+    fieldsBody.innerHTML = defs.map(f =>
+      `<tr><td class="field-name">${f.name}</td><td class="field-value">${f.value}</td><td class="field-meaning">${fieldMeaning(f.value, f)}</td></tr>`
+    ).join('');
+  }
+
+  function renderFires(fires) {
+    if (!fires.length) {
+      fireList.innerHTML = '<div class="fire-none">No fires found in the next 4 years.</div>';
+      return;
+    }
+    fireList.innerHTML = fires.map((d, i) =>
+      `<div class="fire-item">
+        <span class="fire-idx">${i+1}</span>
+        <span class="fire-utc">${d.toISOString().replace('T',' ').slice(0,19)} UTC</span>
+        <span class="fire-rel">${formatRelative(d.getTime())}</span>
+      </div>`
+    ).join('');
+  }
+
+  function update() {
+    const expr = cronInput.value.trim();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ expr: cronInput.value })); } catch {}
+
+    if (!expr) {
+      cronError.textContent = '';
+      descText.textContent = 'Enter a cron expression above.';
+      descText.className = 'cron-desc empty';
+      cardFields.style.display = cardFires.style.display = 'none';
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = parseCron(expr);
+      cronError.textContent = '';
+    } catch (e) {
+      cronError.textContent = '· ' + e.message;
+      descText.textContent = 'Invalid expression.';
+      descText.className = 'cron-desc empty';
+      cardFields.style.display = cardFires.style.display = 'none';
+      return;
+    }
+
+    descText.textContent = buildDescription(parsed);
+    descText.className = 'cron-desc';
+    renderFields(parsed);
+    cardFields.style.display = '';
+    renderFires(nextFireTimes(parsed, 10));
+    cardFires.style.display = '';
+  }
+
+  cronInput.addEventListener('input', update);
+  btnClear.addEventListener('click', () => { cronInput.value = ''; update(); cronInput.focus(); });
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (saved.expr) cronInput.value = saved.expr;
+  } catch {}
+
+  update();
+})();
+</script>
+</body>
+</html>
