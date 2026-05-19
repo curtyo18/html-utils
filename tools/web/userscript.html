@@ -298,6 +298,8 @@ btnInstall.addEventListener('click', async () => {
     return;
   }
 
+  const win = window.open('about:blank', '_blank');
+
   const origText = btnInstall.textContent;
   btnInstall.textContent = 'Preparing…';
   btnInstall.disabled = true;
@@ -309,7 +311,9 @@ btnInstall.addEventListener('click', async () => {
     await cache.put(installUrl, new Response(script, {
       headers: { 'Content-Type': 'application/javascript' }
     }));
-    window.open(installUrl, '_blank');
+    win.location.href = installUrl;
+  } catch {
+    win?.close();
   } finally {
     btnInstall.textContent = origText;
     btnInstall.disabled = !inputEl.value.trim();

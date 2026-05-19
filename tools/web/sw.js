@@ -9,7 +9,7 @@ self.addEventListener('fetch', event => {
   if (url.pathname.endsWith('/script.user.js')) {
     event.respondWith(
       caches.open('userscript-install').then(cache =>
-        cache.match(event.request.url)
+        cache.match(event.request.url).then(r => r ?? fetch(event.request))
       )
     );
   }
