@@ -102,6 +102,15 @@
   }
   .url-warning.show { display: block; }
 
+  .install-hint {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .install-hint strong { color: var(--text-dim); font-weight: 500; }
+
   .error-banner {
     display: none;
     font-family: var(--mono);
@@ -164,6 +173,7 @@
             </div>
             <button class="btn primary" id="btn-share">Copy share link</button>
             <button class="btn" id="btn-install" disabled>Install with Tampermonkey</button>
+            <p class="install-hint">Chrome may warn the download is unverified — click <strong>Keep</strong> to proceed. Tampermonkey will then open the install dialog.</p>
           </div>
         </div>
       </section>
@@ -280,44 +290,18 @@ btnShare.addEventListener('click', async () => {
   }
 });
 
-btnInstall.addEventListener('click', async () => {
+btnInstall.addEventListener('click', () => {
   const script = inputEl.value;
   if (!script.trim()) return;
-
-  const swSupported = 'serviceWorker' in navigator;
-  if (!swSupported) {
-    const blob = new Blob([script], { type: 'application/javascript' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'script.user.js';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    return;
-  }
-
-  const win = window.open('about:blank', '_blank');
-
-  const origText = btnInstall.textContent;
-  btnInstall.textContent = 'Preparing…';
-  btnInstall.disabled = true;
-
-  try {
-    await navigator.serviceWorker.ready;
-    const installUrl = new URL('./script.user.js', window.location.href).href;
-    const cache = await caches.open('userscript-install');
-    await cache.put(installUrl, new Response(script, {
-      headers: { 'Content-Type': 'application/javascript' }
-    }));
-    win.location.href = installUrl;
-  } catch {
-    win?.close();
-  } finally {
-    btnInstall.textContent = origText;
-    btnInstall.disabled = !inputEl.value.trim();
-  }
+  const blob = new Blob([script], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'script.user.js';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 });
 
 btnClear.addEventListener('click', () => {
@@ -328,10 +312,6 @@ btnClear.addEventListener('click', () => {
   onInput();
   inputEl.focus();
 });
-
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js');
-}
 
 loadFromUrl();
 onInput();
