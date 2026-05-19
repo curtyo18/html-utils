@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>qr · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<style>
+  .opt-group {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg-1);
+    flex-shrink: 0;
+  }
+  .opt-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .opt-label { color: var(--text-faint); min-width: 44px; }
+  .opt-row select {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 3px 8px;
+    outline: none;
+  }
+  .opt-row input[type="file"] {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+  .ec-group { display: flex; }
+  .ec-btn {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-right: none;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 3px 11px;
+    cursor: pointer;
+    transition: all 100ms;
+    user-select: none;
+  }
+  .ec-btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+  .ec-btn:last-child  { border-right: 1px solid var(--border); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+  .ec-btn.active { background: var(--accent); border-color: var(--accent); color: #1a1208; }
+  .ec-note { font-size: 11px; color: var(--accent-dim); }
+  .logo-info {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .logo-info.visible { display: flex; }
+  .logo-name { color: var(--accent); }
+  .logo-clear {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 1px 7px;
+    cursor: pointer;
+  }
+  .logo-clear:hover { color: var(--text); border-color: var(--border-strong); }
+  .qr-output {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    overflow: auto;
+    padding: 24px;
+    background: var(--bg);
+  }
+  .qr-canvas-wrap {
+    background: #fff;
+    padding: 16px;
+    border-radius: var(--r);
+  }
+  #qr-canvas { display: block; }
+  .qr-placeholder { font-family: var(--mono); font-size: 13px; color: var(--text-faint); font-style: italic; }
+  .qr-error { font-family: var(--mono); font-size: 12px; color: var(--del); text-align: center; max-width: 300px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>generate</span><span class="sep">/</span>
+      <span class="current">qr</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta" id="meta">QR code generator</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="label">qr code</span>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-download" disabled>download PNG</button>
+  </div>
+
+  <main class="main">
+    <div class="panes two">
+      <section class="pane" style="display:flex;flex-direction:column;overflow:hidden;">
+        <div class="pane-head">
+          <span class="pane-title">text / URL</span>
+          <span class="pane-stat" id="stat-chars">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="qr-input" spellcheck="false"
+            placeholder="https://example.com&#10;or any text to encode"></textarea>
+        </div>
+        <div class="opt-group">
+          <div class="opt-row">
+            <span class="opt-label">error</span>
+            <div class="ec-group" id="ec-group">
+              <button class="ec-btn" data-ec="L">L</button>
+              <button class="ec-btn active" data-ec="M">M</button>
+              <button class="ec-btn" data-ec="Q">Q</button>
+              <button class="ec-btn" data-ec="H">H</button>
+            </div>
+            <span class="ec-note" id="ec-note"></span>
+          </div>
+          <div class="opt-row">
+            <span class="opt-label">size</span>
+            <select id="qr-size">
+              <option value="256">Small (256px)</option>
+              <option value="400" selected>Medium (400px)</option>
+              <option value="600">Large (600px)</option>
+            </select>
+          </div>
+          <div class="opt-row">
+            <span class="opt-label">logo</span>
+            <input type="file" id="logo-file" accept="image/*">
+          </div>
+          <div class="logo-info" id="logo-info">
+            <span class="logo-name" id="logo-name"></span>
+            <button class="logo-clear" id="logo-clear">✕ remove</button>
+            <span class="ec-note">EC upgraded to H</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">preview</span>
+          <span class="pane-stat" id="stat-qr"></span>
+        </div>
+        <div class="qr-output" id="qr-output">
+          <div class="qr-placeholder">QR code appears here</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const qrInput    = document.getElementById('qr-input');
+  const ecGroup    = document.getElementById('ec-group');
+  const ecNote     = document.getElementById('ec-note');
+  const qrSize     = document.getElementById('qr-size');
+  const logoFile   = document.getElementById('logo-file');
+  const logoInfo   = document.getElementById('logo-info');
+  const logoName   = document.getElementById('logo-name');
+  const logoClear  = document.getElementById('logo-clear');
+  const qrOutput   = document.getElementById('qr-output');
+  const statChars  = document.getElementById('stat-chars');
+  const statQr     = document.getElementById('stat-qr');
+  const metaEl     = document.getElementById('meta');
+  const btnClear   = document.getElementById('btn-clear');
+  const btnDownload= document.getElementById('btn-download');
+  const toast      = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:qr';
+  let logoImage = null;
+
+  function getEc() { return ecGroup.querySelector('.active')?.dataset.ec || 'M'; }
+
+  function setEc(level) {
+    ecGroup.querySelectorAll('.ec-btn').forEach(b => b.classList.toggle('active', b.dataset.ec === level));
+  }
+
+  function effectiveEc() { return logoImage ? 'H' : getEc(); }
+
+  ecGroup.addEventListener('click', e => {
+    const btn = e.target.closest('.ec-btn');
+    if (!btn) return;
+    setEc(btn.dataset.ec);
+    ecNote.textContent = (logoImage && btn.dataset.ec !== 'H') ? '(logo requires H — using H)' : '';
+    render();
+  });
+
+  logoFile.addEventListener('change', () => {
+    const file = logoFile.files[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      logoImage = img;
+      logoName.textContent = file.name;
+      logoInfo.classList.add('visible');
+      ecNote.textContent = '';
+      render();
+    };
+    img.src = URL.createObjectURL(file);
+  });
+
+  logoClear.addEventListener('click', () => {
+    logoImage = null;
+    logoFile.value = '';
+    logoInfo.classList.remove('visible');
+    ecNote.textContent = '';
+    render();
+  });
+
+  function overlayLogo(canvas) {
+    if (!logoImage) return;
+    const ctx = canvas.getContext('2d');
+    const sz  = canvas.width;
+    const logoSz = Math.round(sz * 0.22);
+    const pad    = Math.round(sz * 0.03);
+    const x = Math.round((sz - logoSz) / 2);
+    const y = Math.round((sz - logoSz) / 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x - pad, y - pad, logoSz + pad * 2, logoSz + pad * 2);
+    ctx.drawImage(logoImage, x, y, logoSz, logoSz);
+  }
+
+  function render() {
+    const text  = qrInput.value;
+    const width = parseInt(qrSize.value, 10);
+    const ec    = effectiveEc();
+
+    statChars.textContent = `${text.length} chars`;
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, ec: getEc(), size: qrSize.value }));
+    } catch {}
+
+    if (!text.trim()) {
+      qrOutput.innerHTML = '<div class="qr-placeholder">QR code appears here</div>';
+      statQr.textContent = '';
+      metaEl.textContent = 'QR code generator';
+      btnDownload.disabled = true;
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    QRCode.toCanvas(canvas, text, { errorCorrectionLevel: ec, width, margin: 2 }, err => {
+      if (err) {
+        qrOutput.innerHTML = `<div class="qr-error">${err.message}<br><small>Try shorter text or lower error correction level.</small></div>`;
+        statQr.textContent = '';
+        btnDownload.disabled = true;
+        return;
+      }
+      overlayLogo(canvas);
+      qrOutput.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'qr-canvas-wrap';
+      wrap.appendChild(canvas);
+      qrOutput.appendChild(wrap);
+
+      statQr.textContent = `EC: ${ec} · ${width}px`;
+      metaEl.textContent = `${text.length} chars · EC: ${ec} · ${width}px`;
+      btnDownload.disabled = false;
+
+      const dataUrl = canvas.toDataURL('image/png');
+      btnDownload.onclick = () => {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = 'qr.png';
+        a.click();
+      };
+    });
+  }
+
+  let _t;
+  qrInput.addEventListener('input', () => { clearTimeout(_t); _t = setTimeout(render, 200); });
+  qrSize.addEventListener('change', render);
+
+  btnClear.addEventListener('click', () => {
+    qrInput.value = '';
+    logoImage = null;
+    logoFile.value = '';
+    logoInfo.classList.remove('visible');
+    ecNote.textContent = '';
+    render();
+    qrInput.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1400);
+  }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (saved.text) qrInput.value = saved.text;
+    if (saved.ec)   setEc(saved.ec);
+    if (saved.size) qrSize.value = saved.size;
+  } catch {}
+
+  render();
+})();
+</script>
+</body>
+</html>
