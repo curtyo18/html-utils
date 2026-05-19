@@ -173,6 +173,7 @@
             </div>
             <button class="btn primary" id="btn-share">Copy share link</button>
             <button class="btn" id="btn-install" disabled>Install with Tampermonkey</button>
+            <button class="btn" id="btn-copy-install" disabled>Copy install link</button>
             <p class="install-hint">Chrome may warn the download is unverified — click <strong>Keep</strong> to proceed. Tampermonkey will then open the install dialog.</p>
           </div>
         </div>
@@ -193,8 +194,9 @@ const statChars   = document.getElementById('stat-chars');
 const statLines   = document.getElementById('stat-lines');
 const urlWarning  = document.getElementById('url-warning');
 const btnShare    = document.getElementById('btn-share');
-const btnInstall  = document.getElementById('btn-install');
-const btnClear    = document.getElementById('btn-clear');
+const btnInstall     = document.getElementById('btn-install');
+const btnCopyInstall = document.getElementById('btn-copy-install');
+const btnClear       = document.getElementById('btn-clear');
 const toast       = document.getElementById('toast');
 
 function renderMeta(script) {
@@ -230,6 +232,7 @@ function updateStats(script) {
   statChars.textContent = `${script.length} chars`;
   statLines.textContent = `${script ? script.split('\n').length : 0} lines`;
   btnInstall.disabled = !script.trim();
+  btnCopyInstall.disabled = !script.trim() || !WORKER_URL;
 }
 
 function loadFromUrl() {
@@ -311,6 +314,21 @@ btnInstall.addEventListener('click', () => {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+});
+
+btnCopyInstall.addEventListener('click', async () => {
+  const script = inputEl.value;
+  if (!script.trim() || !WORKER_URL) return;
+  const compressed = LZString.compressToEncodedURIComponent(script);
+  const installUrl = `${WORKER_URL}/script.user.js?s=${compressed}`;
+  try {
+    await navigator.clipboard.writeText(installUrl);
+    const origText = btnCopyInstall.textContent;
+    btnCopyInstall.textContent = 'Copied!';
+    setTimeout(() => { btnCopyInstall.textContent = origText; }, 1500);
+  } catch {
+    prompt('Copy this install link:', installUrl);
+  }
 });
 
 btnClear.addEventListener('click', () => {
