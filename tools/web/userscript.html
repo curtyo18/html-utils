@@ -90,27 +90,6 @@
     gap: 10px;
   }
 
-  .url-warning {
-    display: none;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--del);
-    background: var(--del-bg);
-    border: 1px solid var(--del);
-    border-radius: var(--r);
-    padding: 6px 10px;
-  }
-  .url-warning.show { display: block; }
-
-  .install-hint {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-faint);
-    margin: 0;
-    line-height: 1.5;
-  }
-  .install-hint strong { color: var(--text-dim); font-weight: 500; }
-
   .error-banner {
     display: none;
     font-family: var(--mono);
@@ -136,7 +115,7 @@
       <span class="current">userscript</span>
     </div>
     <div class="spacer"></div>
-    <div class="meta">paste · share · install</div>
+    <div class="meta">paste · install</div>
   </header>
 
   <div class="toolbar">
@@ -168,13 +147,7 @@
           <div id="meta-card" class="meta-card empty">No metadata found</div>
           <div class="output-divider"></div>
           <div class="action-area">
-            <div id="url-warning" class="url-warning">
-              Share link may be too long for some platforms.
-            </div>
-            <button class="btn primary" id="btn-share">Copy share link</button>
-            <button class="btn" id="btn-install" disabled>Install with Tampermonkey</button>
-            <button class="btn" id="btn-copy-install" disabled>Copy install link</button>
-            <p class="install-hint">Chrome may warn the download is unverified — click <strong>Keep</strong> to proceed. Tampermonkey will then open the install dialog.</p>
+            <button class="btn primary" id="btn-copy-install" disabled>Copy install link</button>
           </div>
         </div>
       </section>
@@ -185,16 +158,13 @@
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { parseUserscriptMeta, isShareUrlTooLong } from '../../scripts/userscript-utils.mjs';
+import { parseUserscriptMeta } from '../../scripts/userscript-utils.mjs';
 
 const inputEl     = document.getElementById('input');
-const metaCard    = document.getElementById('meta-card');
-const errorBanner = document.getElementById('error-banner');
-const statChars   = document.getElementById('stat-chars');
-const statLines   = document.getElementById('stat-lines');
-const urlWarning  = document.getElementById('url-warning');
-const btnShare    = document.getElementById('btn-share');
-const btnInstall     = document.getElementById('btn-install');
+const metaCard       = document.getElementById('meta-card');
+const errorBanner    = document.getElementById('error-banner');
+const statChars      = document.getElementById('stat-chars');
+const statLines      = document.getElementById('stat-lines');
 const btnCopyInstall = document.getElementById('btn-copy-install');
 const btnClear       = document.getElementById('btn-clear');
 const toast       = document.getElementById('toast');
@@ -231,7 +201,6 @@ function esc(str) {
 function updateStats(script) {
   statChars.textContent = `${script.length} chars`;
   statLines.textContent = `${script ? script.split('\n').length : 0} lines`;
-  btnInstall.disabled = !script.trim();
   btnCopyInstall.disabled = !script.trim() || !WORKER_URL;
 }
 
@@ -265,56 +234,7 @@ function showToast(msg) {
   _toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
 }
 
-btnShare.addEventListener('click', async () => {
-  const script = inputEl.value;
-  if (!script.trim()) {
-    showToast('nothing to share');
-    return;
-  }
-  const compressed = LZString.compressToEncodedURIComponent(script);
-  const baseUrl = window.location.origin + window.location.pathname;
-  const fullUrl = baseUrl + '?s=' + compressed;
-
-  if (isShareUrlTooLong(compressed, baseUrl)) {
-    urlWarning.classList.add('show');
-  } else {
-    urlWarning.classList.remove('show');
-  }
-
-  window.history.replaceState(null, '', '?s=' + compressed);
-
-  try {
-    await navigator.clipboard.writeText(fullUrl);
-    const origText = btnShare.textContent;
-    btnShare.textContent = 'Copied!';
-    setTimeout(() => { btnShare.textContent = origText; }, 1500);
-  } catch {
-    prompt('Copy this share link:', fullUrl);
-  }
-});
-
 const WORKER_URL = 'https://html-utils-install.curtyo18.workers.dev';
-
-btnInstall.addEventListener('click', () => {
-  const script = inputEl.value;
-  if (!script.trim()) return;
-
-  if (WORKER_URL) {
-    const compressed = LZString.compressToEncodedURIComponent(script);
-    window.open(`${WORKER_URL}/script.user.js?s=${compressed}`, '_blank');
-    return;
-  }
-
-  const blob = new Blob([script], { type: 'application/javascript' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'script.user.js';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-});
 
 btnCopyInstall.addEventListener('click', async () => {
   const script = inputEl.value;
