@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>timestamp · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  .ts-field {
+    flex: 1;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 0 10px;
+    height: 28px;
+    outline: none;
+    transition: border-color 120ms;
+    min-width: 0;
+  }
+  .ts-field:focus { border-color: var(--border-strong); }
+  .ts-field::placeholder { color: var(--text-faint); }
+  .ts-field.invalid { border-color: var(--del); }
+
+  .output-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ts-empty {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 13px;
+    margin: auto;
+    text-align: center;
+    line-height: 2;
+  }
+  .ts-empty .hint { color: var(--text-faint); opacity: 0.6; font-size: 11px; }
+
+  .ts-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0;
+    width: 100%;
+    max-width: 640px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    background: var(--border);
+  }
+  .ts-row {
+    display: contents;
+  }
+  .ts-row .k, .ts-row .v {
+    padding: 10px 16px;
+    background: var(--bg-1);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .ts-row .k {
+    color: var(--text-faint);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .ts-row .v {
+    color: var(--text);
+    word-break: break-all;
+    border-bottom: 1px solid var(--border);
+  }
+  .ts-row:last-child .k,
+  .ts-row:last-child .v { border-bottom: none; }
+
+  .ts-row .v.accent { color: var(--accent); }
+  .ts-row .v.dim { color: var(--text-dim); }
+
+  .ts-sep {
+    margin: 20px 0 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    width: 100%;
+    max-width: 640px;
+  }
+  .ts-sep:first-child { margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>numbers</span><span class="sep">/</span>
+      <span class="current">timestamp</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">epoch ↔ date</div>
+  </header>
+
+  <div class="toolbar">
+    <input class="ts-field" id="ts-input" type="text" placeholder="epoch (s or ms), or date string…" autocomplete="off" spellcheck="false">
+    <button class="btn ghost" id="btn-now">now</button>
+    <span style="width:1px;height:16px;background:var(--border);"></span>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-copy">copy <span class="kbd">⌘↵</span></button>
+  </div>
+
+  <main class="main">
+    <div class="output-area" id="output">
+      <div class="ts-empty">
+        Paste an epoch or date string above.<br>
+        <span class="hint">1747820000 · 1747820000000 · 2025-05-21T10:00:00Z · "May 21 2025"</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const tsInput  = document.getElementById('ts-input');
+  const output   = document.getElementById('output');
+  const btnNow   = document.getElementById('btn-now');
+  const btnClear = document.getElementById('btn-clear');
+  const btnCopy  = document.getElementById('btn-copy');
+  const toast    = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:timestamp';
+
+  let lastCopy = '';
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (saved.input) tsInput.value = saved.input;
+  } catch {}
+
+  function parseInput(raw) {
+    const t = raw.trim();
+    if (!t) return null;
+
+    // Pure digits: epoch
+    if (/^\d+$/.test(t)) {
+      const n = Number(t);
+      if (!Number.isFinite(n)) return null;
+      // >= 13 digits → milliseconds; otherwise seconds
+      const ms = t.length >= 13 ? n : n * 1000;
+      return new Date(ms);
+    }
+
+    // Try native Date parsing (handles ISO 8601, RFC 2822, many locale strings)
+    const d = new Date(t);
+    if (!isNaN(d.getTime())) return d;
+
+    return null;
+  }
+
+  function formatRelative(ms) {
+    const diff = ms - Date.now();
+    const abs = Math.abs(diff);
+    const sec = Math.round(abs / 1000);
+    const min = Math.round(sec / 60);
+    const hr  = Math.round(min / 60);
+    const day = Math.round(hr / 24);
+    const yr  = Math.round(day / 365);
+    let val, unit;
+    if (sec < 60)       { val = sec; unit = 'second'; }
+    else if (min < 60)  { val = min; unit = 'minute'; }
+    else if (hr < 48)   { val = hr;  unit = 'hour'; }
+    else if (day < 365) { val = day; unit = 'day'; }
+    else                { val = yr;  unit = 'year'; }
+    const s = val === 1 ? '' : 's';
+    return diff < 0 ? `${val} ${unit}${s} ago` : `${val} ${unit}${s} from now`;
+  }
+
+  function render() {
+    const raw = tsInput.value;
+
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ input: raw })); } catch {}
+
+    if (!raw.trim()) {
+      tsInput.classList.remove('invalid');
+      output.innerHTML = `<div class="ts-empty">Paste an epoch or date string above.<br><span class="hint">1747820000 · 1747820000000 · 2025-05-21T10:00:00Z · "May 21 2025"</span></div>`;
+      lastCopy = '';
+      return;
+    }
+
+    const d = parseInput(raw);
+    if (!d) {
+      tsInput.classList.add('invalid');
+      output.innerHTML = `<div class="ts-empty" style="color:var(--del)">Couldn't parse that as a date or epoch.</div>`;
+      lastCopy = '';
+      return;
+    }
+
+    tsInput.classList.remove('invalid');
+
+    const ms  = d.getTime();
+    const sec = Math.floor(ms / 1000);
+
+    const iso      = d.toISOString();
+    const utc      = d.toUTCString();
+    const local    = d.toString();
+    const relative = formatRelative(ms);
+
+    const rows = [
+      ['epoch (s)',  String(sec),   ''],
+      ['epoch (ms)', String(ms),   ''],
+      ['ISO 8601',   iso,          'accent'],
+      ['UTC',        utc,          ''],
+      ['local',      local,        ''],
+      ['relative',   relative,     'dim'],
+    ];
+
+    lastCopy = rows.map(([k, v]) => `${k}: ${v}`).join('\n');
+
+    const html = rows.map(([k, v, cls]) => `
+      <div class="ts-row">
+        <span class="k">${k}</span>
+        <span class="v ${cls}">${escHtml(v)}</span>
+      </div>`).join('');
+
+    output.innerHTML = `<div class="ts-kv">${html}</div>`;
+  }
+
+  function escHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1400);
+  }
+
+  tsInput.addEventListener('input', render);
+
+  btnNow.addEventListener('click', () => {
+    tsInput.value = String(Date.now());
+    render();
+    tsInput.focus();
+  });
+
+  btnClear.addEventListener('click', () => {
+    tsInput.value = '';
+    render();
+    tsInput.focus();
+  });
+
+  btnCopy.addEventListener('click', async () => {
+    if (!lastCopy) { showToast('nothing to copy'); return; }
+    try {
+      await navigator.clipboard.writeText(lastCopy);
+      showToast('copied');
+    } catch {
+      showToast('copy failed');
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      btnCopy.click();
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

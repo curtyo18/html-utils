@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sort · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .seg label {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 10px;
+    height: 28px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+    user-select: none;
+    transition: background 120ms, color 120ms;
+  }
+  .seg label:last-child { border-right: none; }
+  .seg input[type="radio"] { display: none; }
+  .seg label:has(input:checked) { background: var(--bg-2); color: var(--accent); }
+  .seg label:not(:has(input:checked)):hover { background: var(--bg-1); color: var(--text); }
+
+  .opts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .opt input[type="checkbox"] {
+    appearance: none;
+    width: 14px; height: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    margin: 0;
+  }
+  .opt input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+  .opt input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px; top: 0px;
+    width: 5px; height: 9px;
+    border: solid #1a1208;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .opt:hover { color: var(--text); }
+
+  .opt-sep { width: 1px; height: 16px; background: var(--border); }
+
+  @media (max-width: 640px) {
+    .panes.two { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>text</span><span class="sep">/</span>
+      <span class="current">sort</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">sorts as you type</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="label">mode</span>
+    <div class="seg">
+      <label><input type="radio" name="mode" value="az" checked>A→Z</label>
+      <label><input type="radio" name="mode" value="za">Z→A</label>
+      <label><input type="radio" name="mode" value="num">numeric</label>
+      <label><input type="radio" name="mode" value="shuffle">shuffle</label>
+    </div>
+    <span class="opt-sep"></span>
+    <div class="opts">
+      <label class="opt"><input type="checkbox" id="opt-case" checked>ignore case</label>
+      <label class="opt"><input type="checkbox" id="opt-trim">trim</label>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-copy">copy output <span class="kbd">⌘↵</span></button>
+  </div>
+
+  <main class="main">
+    <div class="panes two">
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">input</span>
+          <span class="pane-stat" id="stat-in">0 lines</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false" placeholder="Paste lines to sort…"></textarea>
+        </div>
+      </section>
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">output</span>
+          <span class="pane-stat" id="stat-out">0 lines</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="output" spellcheck="false" readonly placeholder="sorted output appears here"></textarea>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const input    = document.getElementById('input');
+  const output   = document.getElementById('output');
+  const statIn   = document.getElementById('stat-in');
+  const statOut  = document.getElementById('stat-out');
+  const optCase  = document.getElementById('opt-case');
+  const optTrim  = document.getElementById('opt-trim');
+  const btnCopy  = document.getElementById('btn-copy');
+  const btnClear = document.getElementById('btn-clear');
+  const toast    = document.getElementById('toast');
+
+  const STORAGE_KEY = 'html-utils:sort';
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (saved.input) input.value = saved.input;
+    if (saved.mode) {
+      const r = document.querySelector(`input[name="mode"][value="${saved.mode}"]`);
+      if (r) r.checked = true;
+    }
+    if (typeof saved.ignoreCase === 'boolean') optCase.checked = saved.ignoreCase;
+    if (typeof saved.trim === 'boolean') optTrim.checked = saved.trim;
+  } catch {}
+
+  function getMode() {
+    return document.querySelector('input[name="mode"]:checked')?.value ?? 'az';
+  }
+
+  function convert() {
+    const raw = input.value;
+    const mode = getMode();
+    const ignoreCase = optCase.checked;
+    const doTrim = optTrim.checked;
+
+    if (!raw) {
+      output.value = '';
+      statIn.textContent = '0 lines';
+      statOut.textContent = '0 lines';
+      persist();
+      return;
+    }
+
+    let lines = raw.split(/\r?\n/);
+    if (doTrim) lines = lines.map(l => l.trim());
+    statIn.textContent = `${lines.length} line${lines.length === 1 ? '' : 's'}`;
+
+    let sorted;
+    if (mode === 'shuffle') {
+      sorted = [...lines];
+      for (let i = sorted.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [sorted[i], sorted[j]] = [sorted[j], sorted[i]];
+      }
+    } else if (mode === 'num') {
+      sorted = [...lines].sort((a, b) => {
+        const na = parseFloat(a), nb = parseFloat(b);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        const ka = ignoreCase ? a.toLowerCase() : a;
+        const kb = ignoreCase ? b.toLowerCase() : b;
+        return ka.localeCompare(kb);
+      });
+    } else {
+      sorted = [...lines].sort((a, b) => {
+        const ka = ignoreCase ? a.toLowerCase() : a;
+        const kb = ignoreCase ? b.toLowerCase() : b;
+        const cmp = ka.localeCompare(kb);
+        return mode === 'za' ? -cmp : cmp;
+      });
+    }
+
+    output.value = sorted.join('\n');
+    statOut.textContent = `${sorted.length} line${sorted.length === 1 ? '' : 's'}`;
+    persist();
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        input: input.value,
+        mode: getMode(),
+        ignoreCase: optCase.checked,
+        trim: optTrim.checked,
+      }));
+    } catch {}
+  }
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1400);
+  }
+
+  input.addEventListener('input', convert);
+  optCase.addEventListener('change', convert);
+  optTrim.addEventListener('change', convert);
+  document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', convert));
+
+  btnCopy.addEventListener('click', async () => {
+    if (!output.value) { showToast('nothing to copy'); return; }
+    try {
+      await navigator.clipboard.writeText(output.value);
+      showToast(`copied · ${output.value.length} chars`);
+    } catch {
+      output.select();
+      document.execCommand('copy');
+      showToast('copied');
+    }
+  });
+
+  btnClear.addEventListener('click', () => {
+    input.value = '';
+    convert();
+    input.focus();
+  });
+
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      btnCopy.click();
+    }
+  });
+
+  convert();
+})();
+</script>
+</body>
+</html>
