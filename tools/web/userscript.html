@@ -5,7 +5,6 @@
 <title>userscript · html-utils</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../../shared.css">
-<script src="https://cdn.jsdelivr.net/npm/lz-string@1/libs/lz-string.min.js"></script>
 <style>
   .layout {
     flex: 1;
@@ -204,14 +203,44 @@ function updateStats(script) {
   btnCopyInstall.disabled = !script.trim() || !WORKER_URL;
 }
 
-function loadFromUrl() {
+function preprocessScript(script) {
+  return script
+    .replace(/\/\* @__PURE__ \*\/ /g, '')
+    .replace(/^\/\/ src\/.+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function compressScript(script) {
+  const bytes = new TextEncoder().encode(preprocessScript(script));
+  const cs = new CompressionStream('deflate-raw');
+  const writer = cs.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const buf = await new Response(cs.readable).arrayBuffer();
+  const raw = new Uint8Array(buf);
+  const CHUNK = 8192;
+  let bin = '';
+  for (let i = 0; i < raw.length; i += CHUNK) {
+    bin += String.fromCharCode(...raw.subarray(i, i + CHUNK));
+  }
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function loadFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  const s = params.get('s');
-  if (!s) return;
+  const z = params.get('z');
+  if (!z) return;
   try {
-    const script = LZString.decompressFromEncodedURIComponent(s);
-    if (!script) throw new Error('empty decompression result');
-    inputEl.value = script;
+    const b64 = z.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    const ds = new DecompressionStream('deflate-raw');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const buf = await new Response(ds.readable).arrayBuffer();
+    inputEl.value = new TextDecoder().decode(buf);
   } catch {
     errorBanner.textContent = 'Could not load shared script — link may be corrupted.';
     errorBanner.classList.add('show');
@@ -239,8 +268,8 @@ const WORKER_URL = 'https://html-utils-install.curtyo18.workers.dev';
 btnCopyInstall.addEventListener('click', async () => {
   const script = inputEl.value;
   if (!script.trim() || !WORKER_URL) return;
-  const compressed = LZString.compressToEncodedURIComponent(script);
-  const installUrl = `${WORKER_URL}/script.user.js?s=${compressed}`;
+  const compressed = await compressScript(script);
+  const installUrl = `${WORKER_URL}/script.user.js?z=${compressed}`;
   try {
     await navigator.clipboard.writeText(installUrl);
     const origText = btnCopyInstall.textContent;
@@ -260,7 +289,7 @@ btnClear.addEventListener('click', () => {
   inputEl.focus();
 });
 
-loadFromUrl();
+await loadFromUrl();
 onInput();
 </script>
 </body>
