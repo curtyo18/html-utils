@@ -6,11 +6,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../../shared.css">
 <style>
-  .pattern-row {
+  /* Pattern bar */
+  .pattern-bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex: 1;
+    gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+    flex-shrink: 0;
   }
   .pattern-wrap {
     display: flex;
@@ -21,14 +25,10 @@
     border-radius: var(--r);
     padding: 0 10px;
     gap: 6px;
+    min-width: 0;
   }
   .pattern-wrap.error { border-color: var(--del); }
-  .pattern-slash {
-    color: var(--text-faint);
-    font-family: var(--mono);
-    font-size: 14px;
-    user-select: none;
-  }
+  .pattern-slash { color: var(--text-faint); font-family: var(--mono); font-size: 15px; user-select: none; flex-shrink: 0; }
   .pattern-input {
     flex: 1;
     background: transparent;
@@ -37,66 +37,61 @@
     color: var(--text);
     font-family: var(--mono);
     font-size: 13px;
-    padding: 6px 0;
+    padding: 7px 0;
+    min-width: 0;
   }
   .pattern-input::placeholder { color: var(--text-faint); }
-  .pattern-error {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--del);
-    white-space: nowrap;
-  }
-  .opts {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .opt {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+  .pattern-error { font-family: var(--mono); font-size: 11px; color: var(--del); white-space: nowrap; flex-shrink: 0; }
+
+  .flags { display: flex; flex-shrink: 0; }
+  .flag-btn {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-right: none;
+    color: var(--text-faint);
     font-family: var(--mono);
     font-size: 12px;
-    color: var(--text-dim);
+    padding: 4px 9px;
     cursor: pointer;
     user-select: none;
+    transition: background 80ms, color 80ms;
   }
-  .opt input[type="checkbox"] {
-    appearance: none;
-    width: 14px;
-    height: 14px;
+  .flag-btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+  .flag-btn:last-child { border-right: 1px solid var(--border); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+  .flag-btn.active { background: var(--accent); border-color: var(--accent); color: #1a1208; }
+  .flag-btn:hover:not(.active) { color: var(--text); }
+
+  .opt-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+
+  .replace-toggle {
     background: var(--bg-2);
-    border: 1px solid var(--border-strong);
-    border-radius: 3px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
     cursor: pointer;
-    position: relative;
-    margin: 0;
+    user-select: none;
+    flex-shrink: 0;
+    transition: background 80ms, color 80ms;
   }
-  .opt input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
-  .opt input[type="checkbox"]:checked::after {
-    content: "";
-    position: absolute;
-    left: 3px; top: 0px;
-    width: 5px; height: 9px;
-    border: solid #1a1208;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  .opt:hover { color: var(--text); }
-  .opt-sep { width: 1px; height: 16px; background: var(--border); }
-  #replace-row {
+  .replace-toggle.active { background: var(--accent); border-color: var(--accent); color: #1a1208; }
+  .replace-toggle:hover:not(.active) { color: var(--text); }
+
+  .replace-bar {
     display: none;
     align-items: center;
     gap: 8px;
     padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
     background: var(--bg-1);
-    border-top: 1px solid var(--border);
     font-family: var(--mono);
     font-size: 12px;
     color: var(--text-faint);
     flex-shrink: 0;
   }
-  #replace-row.visible { display: flex; }
+  .replace-bar.visible { display: flex; }
   .replace-input {
     flex: 1;
     background: var(--bg-2);
@@ -110,45 +105,78 @@
   }
   .replace-input:focus { border-color: var(--border-strong); }
   .replace-input::placeholder { color: var(--text-faint); }
-  .output-view {
+
+  .editor-section {
     flex: 1;
-    overflow: auto;
-    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .editor-head {
+    display: flex;
+    align-items: center;
+    padding: 4px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+  }
+  .editor-head-stat { margin-left: auto; }
+
+  /* Backdrop + textarea: must share identical font metrics */
+  .editor-wrap { flex: 1; position: relative; min-height: 0; }
+  .backdrop,
+  .editor-textarea {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
     font-family: var(--mono);
     font-size: 13px;
     line-height: 1.6;
-    color: var(--text);
-    padding: 10px 14px;
+    padding: 12px 14px;
     white-space: pre-wrap;
-    word-break: break-word;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    box-sizing: border-box;
+    border: none;
+    margin: 0;
   }
-  .output-view mark {
+  .backdrop {
+    background: var(--bg);
+    color: transparent;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .backdrop mark {
     background: var(--accent);
-    color: #1a1208;
+    color: transparent;
     border-radius: 2px;
+    padding: 0;
   }
-  .output-view .match-num {
-    font-size: 9px;
-    color: var(--accent-dim);
-    vertical-align: super;
-    margin-left: 1px;
-    user-select: none;
+  .editor-textarea {
+    background: transparent;
+    color: var(--text);
+    resize: none;
+    outline: none;
+    caret-color: var(--text);
+    overflow: auto;
+    z-index: 1;
   }
-  .output-empty { color: var(--text-faint); font-style: italic; }
-  .match-list {
+  .editor-textarea::placeholder { color: var(--text-faint); }
+
+  .match-panel {
     border-top: 1px solid var(--border);
     background: var(--bg-1);
-    overflow: auto;
-    max-height: 180px;
+    flex-shrink: 0;
+    max-height: 160px;
+    overflow-y: auto;
     font-family: var(--mono);
     font-size: 12px;
-    flex-shrink: 0;
   }
-  .match-list-empty {
-    padding: 8px 14px;
-    color: var(--text-faint);
-    font-style: italic;
-  }
+  .match-panel-msg { padding: 7px 14px; color: var(--text-faint); }
   .match-item {
     display: flex;
     gap: 12px;
@@ -158,12 +186,18 @@
     flex-wrap: wrap;
   }
   .match-item:last-child { border-bottom: none; }
-  .match-idx { color: var(--text-faint); min-width: 24px; font-size: 11px; }
-  .match-text { color: var(--accent); word-break: break-all; }
-  .match-pos { color: var(--text-faint); font-size: 11px; white-space: nowrap; }
+  .match-idx { color: var(--text-faint); min-width: 20px; font-size: 11px; }
+  .match-val { color: var(--accent); word-break: break-all; }
+  .match-pos { color: var(--text-faint); font-size: 11px; }
   .match-groups { color: var(--text-dim); font-size: 11px; display: flex; gap: 8px; flex-wrap: wrap; }
   .group-label { color: var(--text-faint); }
   .match-more { padding: 4px 14px; color: var(--text-faint); font-size: 11px; }
+  .replace-result {
+    padding: 8px 14px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>
 </head>
 <body>
@@ -179,254 +213,226 @@
     <div class="meta" id="meta">0 matches</div>
   </header>
 
-  <div class="toolbar">
-    <div class="pattern-row">
-      <div class="pattern-wrap" id="pattern-wrap">
-        <span class="pattern-slash">/</span>
-        <input class="pattern-input" id="pattern" spellcheck="false" autocomplete="off" placeholder="pattern">
-        <span class="pattern-slash">/</span>
-        <span class="pattern-error" id="pattern-error"></span>
-      </div>
-      <div class="opts">
-        <label class="opt"><input type="checkbox" id="flag-g" checked>g</label>
-        <label class="opt"><input type="checkbox" id="flag-i">i</label>
-        <label class="opt"><input type="checkbox" id="flag-m">m</label>
-        <label class="opt"><input type="checkbox" id="flag-s">s</label>
-        <span class="opt-sep"></span>
-        <label class="opt"><input type="checkbox" id="opt-replace">replace</label>
-      </div>
+  <div class="pattern-bar">
+    <div class="pattern-wrap" id="pattern-wrap">
+      <span class="pattern-slash">/</span>
+      <input class="pattern-input" id="pattern" spellcheck="false" autocomplete="off" placeholder="pattern">
+      <span class="pattern-slash">/</span>
+      <span class="pattern-error" id="pattern-error"></span>
     </div>
+    <div class="flags" id="flags">
+      <button class="flag-btn active" data-flag="g">g</button>
+      <button class="flag-btn" data-flag="i">i</button>
+      <button class="flag-btn" data-flag="m">m</button>
+      <button class="flag-btn" data-flag="s">s</button>
+    </div>
+    <span class="opt-sep"></span>
+    <button class="replace-toggle" id="btn-replace">replace</button>
     <div class="spacer"></div>
     <button class="btn ghost" id="btn-clear">clear</button>
   </div>
 
-  <div id="replace-row">
+  <div class="replace-bar" id="replace-bar">
     <span>replace with</span>
     <input class="replace-input" id="replace-template" spellcheck="false" placeholder="$&amp;, $1, $2, …">
   </div>
 
   <main class="main" style="flex-direction:column;">
-    <div class="panes two" style="flex:1;min-height:0;">
-      <section class="pane">
-        <div class="pane-head">
-          <span class="pane-title">test string</span>
-          <span class="pane-stat" id="stat-in">0 chars</span>
-        </div>
-        <div class="pane-body">
-          <textarea class="pane-input" id="test-string" spellcheck="false"
-            placeholder="Paste text to test against…"></textarea>
-        </div>
-      </section>
-      <section class="pane" style="display:flex;flex-direction:column;min-height:0;">
-        <div class="pane-head">
-          <span class="pane-title" id="output-title">matches</span>
-          <span class="pane-stat" id="stat-out"></span>
-        </div>
-        <div class="output-view" id="output-view"></div>
-      </section>
+    <div class="editor-section">
+      <div class="editor-head">
+        <span>test string</span>
+        <span class="editor-head-stat" id="stat-in">0 chars</span>
+      </div>
+      <div class="editor-wrap">
+        <div class="backdrop" id="backdrop"></div>
+        <textarea class="editor-textarea" id="test-string" spellcheck="false"
+          placeholder="Paste text to test against…"></textarea>
+      </div>
     </div>
-    <div class="match-list" id="match-list">
-      <div class="match-list-empty">No matches.</div>
+    <div class="match-panel" id="match-panel">
+      <div class="match-panel-msg">No matches.</div>
     </div>
   </main>
 </div>
 
 <script>
 (() => {
-  const patternEl    = document.getElementById('pattern');
-  const patternWrap  = document.getElementById('pattern-wrap');
-  const patternErr   = document.getElementById('pattern-error');
-  const flagG        = document.getElementById('flag-g');
-  const flagI        = document.getElementById('flag-i');
-  const flagM        = document.getElementById('flag-m');
-  const flagS        = document.getElementById('flag-s');
-  const optReplace   = document.getElementById('opt-replace');
-  const replaceRow   = document.getElementById('replace-row');
-  const replaceTpl   = document.getElementById('replace-template');
-  const testStringEl = document.getElementById('test-string');
-  const outputView   = document.getElementById('output-view');
-  const outputTitle  = document.getElementById('output-title');
-  const statIn       = document.getElementById('stat-in');
-  const statOut      = document.getElementById('stat-out');
-  const metaEl       = document.getElementById('meta');
-  const matchList    = document.getElementById('match-list');
-  const btnClear     = document.getElementById('btn-clear');
+  const patternEl   = document.getElementById('pattern');
+  const patternWrap = document.getElementById('pattern-wrap');
+  const patternErr  = document.getElementById('pattern-error');
+  const flagsEl     = document.getElementById('flags');
+  const btnReplace  = document.getElementById('btn-replace');
+  const replaceBar  = document.getElementById('replace-bar');
+  const replaceTpl  = document.getElementById('replace-template');
+  const testStr     = document.getElementById('test-string');
+  const backdrop    = document.getElementById('backdrop');
+  const statIn      = document.getElementById('stat-in');
+  const metaEl      = document.getElementById('meta');
+  const matchPanel  = document.getElementById('match-panel');
+  const btnClear    = document.getElementById('btn-clear');
 
   const STORAGE_KEY = 'html-utils:regex';
 
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    if (saved.pattern)    patternEl.value = saved.pattern;
-    if (saved.testString) testStringEl.value = saved.testString;
-    if (saved.replaceTpl) replaceTpl.value = saved.replaceTpl;
-    if (typeof saved.g === 'boolean') flagG.checked = saved.g;
-    if (typeof saved.i === 'boolean') flagI.checked = saved.i;
-    if (typeof saved.m === 'boolean') flagM.checked = saved.m;
-    if (typeof saved.s === 'boolean') flagS.checked = saved.s;
-    if (typeof saved.replace === 'boolean') {
-      optReplace.checked = saved.replace;
-      replaceRow.classList.toggle('visible', saved.replace);
+    if (saved.pattern) patternEl.value = saved.pattern;
+    if (saved.text)    testStr.value = saved.text;
+    if (saved.tpl)     replaceTpl.value = saved.tpl;
+    if (saved.flags) {
+      flagsEl.querySelectorAll('[data-flag]').forEach(b => {
+        b.classList.toggle('active', saved.flags.includes(b.dataset.flag));
+      });
+    }
+    if (saved.replace) {
+      btnReplace.classList.add('active');
+      replaceBar.classList.add('visible');
     }
   } catch {}
 
-  function escapeHtml(s) {
+  function escHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function buildFlags() {
-    let f = '';
-    if (flagG.checked) f += 'g';
-    if (flagI.checked) f += 'i';
-    if (flagM.checked) f += 'm';
-    if (flagS.checked) f += 's';
-    return f;
+  function getFlags() {
+    return [...flagsEl.querySelectorAll('[data-flag].active')].map(b => b.dataset.flag).join('');
   }
 
   function buildRegex() {
     const p = patternEl.value;
     if (!p) return { regex: null, error: null };
-    try {
-      return { regex: new RegExp(p, buildFlags()), error: null };
-    } catch (e) {
-      return { regex: null, error: e.message };
-    }
+    try { return { regex: new RegExp(p, getFlags()), error: null }; }
+    catch (e) { return { regex: null, error: e.message }; }
   }
 
   function runMatches(regex, text) {
-    const matches = [];
+    const out = [];
     if (regex.global) {
-      let m;
-      regex.lastIndex = 0;
+      let m; regex.lastIndex = 0;
       while ((m = regex.exec(text)) !== null) {
-        matches.push({ index: m.index, value: m[0], groups: [...m].slice(1), namedGroups: m.groups || null });
+        out.push({ index: m.index, value: m[0], groups: [...m].slice(1), named: m.groups || null });
         if (m[0].length === 0) regex.lastIndex++;
-        if (matches.length > 500) break;
+        if (out.length > 500) break;
       }
     } else {
       const m = regex.exec(text);
-      if (m) matches.push({ index: m.index, value: m[0], groups: [...m].slice(1), namedGroups: m.groups || null });
+      if (m) out.push({ index: m.index, value: m[0], groups: [...m].slice(1), named: m.groups || null });
     }
-    return matches;
-  }
-
-  function renderHighlighted(text, matches) {
-    if (!matches.length) return escapeHtml(text);
-    let out = '', pos = 0;
-    const showNums = matches.length > 1;
-    for (let i = 0; i < matches.length; i++) {
-      const m = matches[i];
-      out += escapeHtml(text.slice(pos, m.index));
-      out += `<mark>${escapeHtml(m.value)}${showNums ? `<span class="match-num">${i + 1}</span>` : ''}</mark>`;
-      pos = m.index + m.value.length;
-    }
-    out += escapeHtml(text.slice(pos));
     return out;
   }
 
-  function renderMatchList(matches) {
+  function updateBackdrop(text, matches) {
+    if (!matches.length) { backdrop.textContent = text; return; }
+    let html = '', pos = 0;
+    for (const m of matches) {
+      html += escHtml(text.slice(pos, m.index));
+      html += `<mark>${escHtml(m.value)}</mark>`;
+      pos = m.index + m.value.length;
+    }
+    html += escHtml(text.slice(pos));
+    backdrop.innerHTML = html;
+  }
+
+  function updateMatchPanel(matches, replaceMode, text, regex) {
+    if (replaceMode) {
+      let replaced = '';
+      try { replaced = regex ? text.replace(regex, replaceTpl.value) : text; }
+      catch (e) { replaced = 'Replace error: ' + e.message; }
+      matchPanel.innerHTML = `<div class="replace-result">${escHtml(replaced)}</div>`;
+      return;
+    }
     if (!matches.length) {
-      matchList.innerHTML = '<div class="match-list-empty">No matches.</div>';
+      matchPanel.innerHTML = '<div class="match-panel-msg">No matches.</div>';
       return;
     }
     const LIMIT = 50;
-    const shown = matches.slice(0, LIMIT);
-    let html = shown.map((m, i) => {
-      let groupsHtml = '';
-      if (m.namedGroups && Object.keys(m.namedGroups).length) {
-        groupsHtml = '<div class="match-groups">' +
-          Object.entries(m.namedGroups).map(([k, v]) =>
-            `<span><span class="group-label">${escapeHtml(k)}:</span> ${escapeHtml(v ?? '(null)')}</span>`
-          ).join('') + '</div>';
+    let html = matches.slice(0, LIMIT).map((m, i) => {
+      let grpHtml = '';
+      if (m.named && Object.keys(m.named).length) {
+        grpHtml = '<span class="match-groups">' +
+          Object.entries(m.named).map(([k, v]) =>
+            `<span><span class="group-label">${escHtml(k)}:</span> ${escHtml(v ?? '(null)')}</span>`
+          ).join('') + '</span>';
       } else if (m.groups.length) {
-        groupsHtml = '<div class="match-groups">' +
+        grpHtml = '<span class="match-groups">' +
           m.groups.map((g, gi) =>
-            `<span><span class="group-label">$${gi + 1}:</span> ${escapeHtml(g ?? '(null)')}</span>`
-          ).join('') + '</div>';
+            `<span><span class="group-label">$${gi+1}:</span> ${escHtml(g ?? '(null)')}</span>`
+          ).join('') + '</span>';
       }
       return `<div class="match-item">
-        <span class="match-idx">${i + 1}</span>
-        <span class="match-text">${escapeHtml(m.value || '(empty)')}</span>
+        <span class="match-idx">${i+1}</span>
+        <span class="match-val">${escHtml(m.value || '(empty)')}</span>
         <span class="match-pos">@${m.index}</span>
-        ${groupsHtml}
+        ${grpHtml}
       </div>`;
     }).join('');
     if (matches.length > LIMIT) html += `<div class="match-more">… ${matches.length - LIMIT} more</div>`;
-    matchList.innerHTML = html;
+    matchPanel.innerHTML = html;
   }
 
   function update() {
-    const text = testStringEl.value;
+    const text = testStr.value;
+    const replaceMode = btnReplace.classList.contains('active');
     const { regex, error } = buildRegex();
-    const replaceMode = optReplace.checked;
 
     statIn.textContent = `${text.length} chars`;
 
     if (error) {
       patternWrap.classList.add('error');
       patternErr.textContent = error;
-      outputView.innerHTML = '';
-      matchList.innerHTML = '<div class="match-list-empty">No matches.</div>';
+      backdrop.textContent = text;
+      matchPanel.innerHTML = '<div class="match-panel-msg">Invalid pattern.</div>';
       metaEl.textContent = 'invalid';
-      statOut.textContent = '';
       return;
     }
     patternWrap.classList.remove('error');
     patternErr.textContent = '';
 
     if (!regex || !text) {
-      outputView.innerHTML = text ? `<span class="output-empty">${escapeHtml(text)}</span>` : '';
-      matchList.innerHTML = '<div class="match-list-empty">No matches.</div>';
+      backdrop.textContent = text;
+      matchPanel.innerHTML = '<div class="match-panel-msg">No matches.</div>';
       metaEl.textContent = '0 matches';
-      statOut.textContent = '';
       return;
     }
 
     const matches = runMatches(regex, text);
-
-    if (replaceMode) {
-      outputTitle.textContent = 'replaced';
-      try {
-        const replaced = text.replace(regex, replaceTpl.value);
-        outputView.textContent = replaced;
-      } catch (e) {
-        outputView.innerHTML = `<span class="output-empty">Replace error: ${escapeHtml(e.message)}</span>`;
-      }
-      statOut.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''} replaced`;
-    } else {
-      outputTitle.textContent = 'matches';
-      outputView.innerHTML = renderHighlighted(text, matches) || `<span class="output-empty">(empty string)</span>`;
-      statOut.textContent = matches.length ? `${matches.length} match${matches.length !== 1 ? 'es' : ''}` : '';
-    }
-
-    renderMatchList(matches);
+    updateBackdrop(text, matches);
+    updateMatchPanel(matches, replaceMode, text, regex);
     metaEl.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
 
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        pattern: patternEl.value, testString: text,
-        replaceTpl: replaceTpl.value,
-        g: flagG.checked, i: flagI.checked, m: flagM.checked, s: flagS.checked,
-        replace: replaceMode,
+        pattern: patternEl.value, text, tpl: replaceTpl.value,
+        flags: getFlags(), replace: replaceMode,
       }));
     } catch {}
   }
 
+  testStr.addEventListener('scroll', () => {
+    backdrop.scrollTop  = testStr.scrollTop;
+    backdrop.scrollLeft = testStr.scrollLeft;
+  });
+
   patternEl.addEventListener('input', update);
-  testStringEl.addEventListener('input', update);
+  testStr.addEventListener('input', update);
   replaceTpl.addEventListener('input', update);
-  [flagG, flagI, flagM, flagS].forEach(el => el.addEventListener('change', update));
-  optReplace.addEventListener('change', () => {
-    replaceRow.classList.toggle('visible', optReplace.checked);
-    outputTitle.textContent = optReplace.checked ? 'replaced' : 'matches';
+
+  flagsEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-flag]');
+    if (!btn) return;
+    btn.classList.toggle('active');
+    update();
+  });
+
+  btnReplace.addEventListener('click', () => {
+    btnReplace.classList.toggle('active');
+    replaceBar.classList.toggle('visible', btnReplace.classList.contains('active'));
     update();
   });
 
   btnClear.addEventListener('click', () => {
-    patternEl.value = '';
-    testStringEl.value = '';
-    replaceTpl.value = '';
-    update();
-    patternEl.focus();
+    patternEl.value = ''; testStr.value = ''; replaceTpl.value = '';
+    backdrop.textContent = '';
+    update(); patternEl.focus();
   });
 
   update();

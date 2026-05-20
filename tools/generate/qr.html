@@ -7,36 +7,46 @@
 <link rel="stylesheet" href="../../shared.css">
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <style>
-  .opt-group {
+  .qr-input-bar {
     padding: 10px 14px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    border-bottom: 1px solid var(--border);
     background: var(--bg-1);
     flex-shrink: 0;
   }
-  .opt-row {
+  .qr-input {
+    width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 8px 12px;
+    outline: none;
+    transition: border-color 120ms;
+    box-sizing: border-box;
+    resize: none;
+    line-height: 1.5;
+    height: 60px;
+    overflow-y: auto;
+  }
+  .qr-input:focus { border-color: var(--border-strong); }
+  .qr-input::placeholder { color: var(--text-faint); }
+  .qr-options-bar {
     display: flex;
     align-items: center;
     gap: 10px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
     font-family: var(--mono);
     font-size: 12px;
     color: var(--text-dim);
-    flex-wrap: wrap;
+    flex-shrink: 0;
   }
-  .opt-label { color: var(--text-faint); min-width: 44px; }
-  .opt-row select {
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 3px 8px;
-    outline: none;
-  }
-  .opt-row input[type="file"] {
+  .opt-label { color: var(--text-faint); }
+  .opt-sep { width: 1px; height: 14px; background: var(--border); }
+  .qr-options-bar select {
     background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
@@ -44,14 +54,19 @@
     font-family: var(--mono);
     font-size: 12px;
     padding: 2px 6px;
+    outline: none;
+  }
+  .qr-options-bar input[type="file"] {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
     cursor: pointer;
   }
   .logo-info {
     display: none;
     align-items: center;
-    gap: 8px;
-    font-family: var(--mono);
-    font-size: 12px;
+    gap: 6px;
+    color: var(--text-dim);
   }
   .logo-info.visible { display: flex; }
   .logo-name { color: var(--accent); }
@@ -62,29 +77,22 @@
     color: var(--text-faint);
     font-family: var(--mono);
     font-size: 11px;
-    padding: 1px 7px;
+    padding: 1px 6px;
     cursor: pointer;
   }
   .logo-clear:hover { color: var(--text); border-color: var(--border-strong); }
-  .qr-output {
+  .qr-preview {
     flex: 1;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 18px;
     overflow: auto;
-    padding: 24px;
     background: var(--bg);
+    padding: 24px;
   }
-  .qr-canvas-wrap {
-    background: #fff;
-    padding: 16px;
-    border-radius: var(--r);
-  }
-  #qr-canvas { display: block; }
+  .qr-canvas-wrap { background: #fff; padding: 16px; border-radius: var(--r); }
   .qr-placeholder { font-family: var(--mono); font-size: 13px; color: var(--text-faint); font-style: italic; }
-  .qr-error { font-family: var(--mono); font-size: 12px; color: var(--del); text-align: center; max-width: 300px; }
+  .qr-error { font-family: var(--mono); font-size: 12px; color: var(--del); text-align: center; max-width: 320px; }
 </style>
 </head>
 <body>
@@ -101,52 +109,36 @@
   </header>
 
   <div class="toolbar">
-    <span class="label">qr code</span>
+    <span class="label" id="stat-chars">0 chars</span>
     <div class="spacer"></div>
     <button class="btn ghost" id="btn-clear">clear</button>
     <button class="btn primary" id="btn-download" disabled>download PNG</button>
   </div>
 
-  <main class="main">
-    <div class="panes two">
-      <section class="pane" style="display:flex;flex-direction:column;overflow:hidden;">
-        <div class="pane-head">
-          <span class="pane-title">text / URL</span>
-          <span class="pane-stat" id="stat-chars">0 chars</span>
-        </div>
-        <div class="pane-body">
-          <textarea class="pane-input" id="qr-input" spellcheck="false"
-            placeholder="https://example.com&#10;or any text to encode"></textarea>
-        </div>
-        <div class="opt-group">
-          <div class="opt-row">
-            <span class="opt-label">max</span>
-            <select id="qr-size">
-              <option value="256">Small (256px)</option>
-              <option value="400" selected>Medium (400px)</option>
-              <option value="600">Large (600px)</option>
-            </select>
-          </div>
-          <div class="opt-row">
-            <span class="opt-label">logo</span>
-            <input type="file" id="logo-file" accept="image/*">
-          </div>
-          <div class="logo-info" id="logo-info">
-            <span class="logo-name" id="logo-name"></span>
-            <button class="logo-clear" id="logo-clear">✕ remove</button>
-          </div>
-        </div>
-      </section>
+  <div class="qr-input-bar">
+    <textarea class="qr-input" id="qr-input" spellcheck="false"
+      placeholder="https://example.com or any text to encode"></textarea>
+  </div>
 
-      <section class="pane">
-        <div class="pane-head">
-          <span class="pane-title">preview</span>
-          <span class="pane-stat" id="stat-qr"></span>
-        </div>
-        <div class="qr-output" id="qr-output">
-          <div class="qr-placeholder">QR code appears here</div>
-        </div>
-      </section>
+  <div class="qr-options-bar">
+    <span class="opt-label">size</span>
+    <select id="qr-size">
+      <option value="256">Small (256px)</option>
+      <option value="400" selected>Medium (400px)</option>
+      <option value="600">Large (600px)</option>
+    </select>
+    <span class="opt-sep"></span>
+    <span class="opt-label">logo</span>
+    <input type="file" id="logo-file" accept="image/*">
+    <div class="logo-info" id="logo-info">
+      <span class="logo-name" id="logo-name"></span>
+      <button class="logo-clear" id="logo-clear">✕ remove</button>
+    </div>
+  </div>
+
+  <main class="main">
+    <div class="qr-preview" id="qr-output">
+      <div class="qr-placeholder">QR code appears here</div>
     </div>
   </main>
 </div>
@@ -163,7 +155,6 @@
   const logoClear  = document.getElementById('logo-clear');
   const qrOutput   = document.getElementById('qr-output');
   const statChars  = document.getElementById('stat-chars');
-  const statQr     = document.getElementById('stat-qr');
   const metaEl     = document.getElementById('meta');
   const btnClear   = document.getElementById('btn-clear');
   const btnDownload= document.getElementById('btn-download');
@@ -185,26 +176,6 @@
 
   function effectiveEc() { return logoImage ? 'H' : 'M'; }
 
-  logoFile.addEventListener('change', () => {
-    const file = logoFile.files[0];
-    if (!file) return;
-    const img = new Image();
-    img.onload = () => {
-      logoImage = img;
-      logoName.textContent = file.name;
-      logoInfo.classList.add('visible');
-      render();
-    };
-    img.src = URL.createObjectURL(file);
-  });
-
-  logoClear.addEventListener('click', () => {
-    logoImage = null;
-    logoFile.value = '';
-    logoInfo.classList.remove('visible');
-    render();
-  });
-
   function trimImage(img) {
     const oc = document.createElement('canvas');
     oc.width = img.naturalWidth; oc.height = img.naturalHeight;
@@ -223,11 +194,10 @@
       }
     }
     if (minX > maxX || minY > maxY) return oc;
-    const cropX = minX, cropY = minY;
     const cropW = maxX - minX + 1, cropH = maxY - minY + 1;
     const result = document.createElement('canvas');
     result.width = cropW; result.height = cropH;
-    result.getContext('2d').drawImage(oc, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    result.getContext('2d').drawImage(oc, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
     return result;
   }
 
@@ -263,7 +233,6 @@
 
     if (!text.trim()) {
       qrOutput.innerHTML = '<div class="qr-placeholder">QR code appears here</div>';
-      statQr.textContent = '';
       metaEl.textContent = 'QR code generator';
       btnDownload.disabled = true;
       return;
@@ -272,8 +241,7 @@
     const canvas = document.createElement('canvas');
     QRCode.toCanvas(canvas, text, { errorCorrectionLevel: ec, width, margin: 2 }, err => {
       if (err) {
-        qrOutput.innerHTML = `<div class="qr-error">${err.message}<br><small>Try shorter text or lower error correction level.</small></div>`;
-        statQr.textContent = '';
+        qrOutput.innerHTML = `<div class="qr-error">${err.message}<br><small>Try shorter text.</small></div>`;
         btnDownload.disabled = true;
         return;
       }
@@ -284,35 +252,48 @@
       wrap.appendChild(canvas);
       qrOutput.appendChild(wrap);
 
-      statQr.textContent = `${width}px`;
       metaEl.textContent = `${text.length} chars · ${width}px`;
       btnDownload.disabled = false;
 
       const dataUrl = canvas.toDataURL('image/png');
       btnDownload.onclick = () => {
         const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = 'qr.png';
-        a.click();
+        a.href = dataUrl; a.download = 'qr.png'; a.click();
       };
     });
   }
 
+  logoFile.addEventListener('change', () => {
+    const file = logoFile.files[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      logoImage = img;
+      logoName.textContent = file.name;
+      logoInfo.classList.add('visible');
+      render();
+    };
+    img.src = URL.createObjectURL(file);
+  });
+
+  logoClear.addEventListener('click', () => {
+    logoImage = null; logoFile.value = '';
+    logoInfo.classList.remove('visible');
+    render();
+  });
+
   let _t;
   qrInput.addEventListener('input', () => { clearTimeout(_t); _t = setTimeout(render, 200); });
   qrSize.addEventListener('change', () => { fittedWidth = calcWidth(); render(); });
+
   btnClear.addEventListener('click', () => {
-    qrInput.value = '';
-    logoImage = null;
-    logoFile.value = '';
+    qrInput.value = ''; logoImage = null; logoFile.value = '';
     logoInfo.classList.remove('visible');
-    render();
-    qrInput.focus();
+    render(); qrInput.focus();
   });
 
   function showToast(msg) {
-    toast.textContent = msg;
-    toast.classList.add('show');
+    toast.textContent = msg; toast.classList.add('show');
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => toast.classList.remove('show'), 1400);
   }
