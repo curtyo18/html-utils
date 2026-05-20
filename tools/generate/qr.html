@@ -83,6 +83,26 @@
     cursor: pointer;
   }
   .logo-clear:hover { color: var(--text); border-color: var(--border-strong); }
+  .logo-border-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-faint);
+    font-size: 11px;
+  }
+  .logo-border-wrap input[type="number"] {
+    width: 40px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 1px 4px;
+    outline: none;
+    text-align: center;
+  }
+  .logo-border-wrap input[type="number"]:focus { border-color: var(--border-strong); }
   .qr-output {
     flex: 1;
     display: flex;
@@ -162,6 +182,9 @@
             <span class="logo-name" id="logo-name"></span>
             <button class="logo-clear" id="logo-clear">✕ remove</button>
             <span class="ec-note">EC upgraded to H</span>
+            <span class="logo-border-wrap">
+              border <input type="number" id="trim-border" value="10" min="0" max="50">%
+            </span>
           </div>
         </div>
       </section>
@@ -191,6 +214,7 @@
   const logoInfo   = document.getElementById('logo-info');
   const logoName   = document.getElementById('logo-name');
   const logoClear  = document.getElementById('logo-clear');
+  const trimBorder = document.getElementById('trim-border');
   const qrOutput   = document.getElementById('qr-output');
   const statChars  = document.getElementById('stat-chars');
   const statQr     = document.getElementById('stat-qr');
@@ -251,8 +275,38 @@
     render();
   });
 
+  function trimImage(img, borderPct) {
+    const oc = document.createElement('canvas');
+    oc.width = img.naturalWidth; oc.height = img.naturalHeight;
+    const ctx = oc.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const { data, width, height } = ctx.getImageData(0, 0, oc.width, oc.height);
+    let minX = width, minY = height, maxX = 0, maxY = 0;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4;
+        const [r, g, b, a] = [data[i], data[i+1], data[i+2], data[i+3]];
+        if (a > 10 && !(r > 240 && g > 240 && b > 240)) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (minX > maxX || minY > maxY) return oc;
+    const contentW = maxX - minX + 1, contentH = maxY - minY + 1;
+    const border = Math.round(Math.max(contentW, contentH) * borderPct / 100);
+    const cropX = Math.max(0, minX - border), cropY = Math.max(0, minY - border);
+    const cropW = Math.min(width, maxX + border + 1) - cropX;
+    const cropH = Math.min(height, maxY + border + 1) - cropY;
+    const result = document.createElement('canvas');
+    result.width = cropW; result.height = cropH;
+    result.getContext('2d').drawImage(oc, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    return result;
+  }
+
   function overlayLogo(canvas) {
     if (!logoImage) return;
+    const source = trimImage(logoImage, parseInt(trimBorder.value, 10) || 0);
     const ctx = canvas.getContext('2d');
     const sz     = canvas.width;
     const logoSz = Math.round(sz * 0.22);
@@ -261,10 +315,10 @@
     const cy = Math.round((sz - logoSz) / 2);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(cx - pad, cy - pad, logoSz + pad * 2, logoSz + pad * 2);
-    const ratio = logoImage.naturalWidth / logoImage.naturalHeight;
+    const ratio = source.width / source.height;
     const drawW = ratio >= 1 ? logoSz : Math.round(logoSz * ratio);
     const drawH = ratio >= 1 ? Math.round(logoSz / ratio) : logoSz;
-    ctx.drawImage(logoImage, cx + Math.round((logoSz - drawW) / 2), cy + Math.round((logoSz - drawH) / 2), drawW, drawH);
+    ctx.drawImage(source, cx + Math.round((logoSz - drawW) / 2), cy + Math.round((logoSz - drawH) / 2), drawW, drawH);
   }
 
   function render() {
@@ -318,6 +372,7 @@
   let _t;
   qrInput.addEventListener('input', () => { clearTimeout(_t); _t = setTimeout(render, 200); });
   qrSize.addEventListener('change', () => { fittedWidth = calcWidth(); render(); });
+  trimBorder.addEventListener('change', render);
 
   btnClear.addEventListener('click', () => {
     qrInput.value = '';
