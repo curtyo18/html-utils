@@ -147,7 +147,7 @@
             <span class="ec-note" id="ec-note"></span>
           </div>
           <div class="opt-row">
-            <span class="opt-label">size</span>
+            <span class="opt-label">max</span>
             <select id="qr-size">
               <option value="256">Small (256px)</option>
               <option value="400" selected>Medium (400px)</option>
@@ -201,6 +201,17 @@
 
   const STORAGE_KEY = 'html-utils:qr';
   let logoImage = null;
+  let fittedWidth = 400;
+
+  function calcWidth() {
+    const style = getComputedStyle(qrOutput);
+    const innerW = qrOutput.clientWidth
+      - parseFloat(style.paddingLeft || '0')
+      - parseFloat(style.paddingRight || '0');
+    return Math.max(64, Math.min(parseInt(qrSize.value, 10), Math.floor(innerW) - 32));
+  }
+
+  new ResizeObserver(() => { fittedWidth = calcWidth(); render(); }).observe(qrOutput);
 
   function getEc() { return ecGroup.querySelector('.active')?.dataset.ec || 'M'; }
 
@@ -255,7 +266,7 @@
 
   function render() {
     const text  = qrInput.value;
-    const width = parseInt(qrSize.value, 10);
+    const width = fittedWidth;
     const ec    = effectiveEc();
 
     statChars.textContent = `${text.length} chars`;
@@ -303,7 +314,7 @@
 
   let _t;
   qrInput.addEventListener('input', () => { clearTimeout(_t); _t = setTimeout(render, 200); });
-  qrSize.addEventListener('change', render);
+  qrSize.addEventListener('change', () => { fittedWidth = calcWidth(); render(); });
 
   btnClear.addEventListener('click', () => {
     qrInput.value = '';
