@@ -46,23 +46,6 @@
     padding: 2px 6px;
     cursor: pointer;
   }
-  .ec-group { display: flex; }
-  .ec-btn {
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-right: none;
-    color: var(--text-faint);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 3px 11px;
-    cursor: pointer;
-    transition: all 100ms;
-    user-select: none;
-  }
-  .ec-btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
-  .ec-btn:last-child  { border-right: 1px solid var(--border); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
-  .ec-btn.active { background: var(--accent); border-color: var(--accent); color: #1a1208; }
-  .ec-note { font-size: 11px; color: var(--accent-dim); }
   .logo-info {
     display: none;
     align-items: center;
@@ -83,26 +66,6 @@
     cursor: pointer;
   }
   .logo-clear:hover { color: var(--text); border-color: var(--border-strong); }
-  .logo-border-wrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--text-faint);
-    font-size: 11px;
-  }
-  .logo-border-wrap input[type="number"] {
-    width: 40px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 1px 4px;
-    outline: none;
-    text-align: center;
-  }
-  .logo-border-wrap input[type="number"]:focus { border-color: var(--border-strong); }
   .qr-output {
     flex: 1;
     display: flex;
@@ -157,16 +120,6 @@
         </div>
         <div class="opt-group">
           <div class="opt-row">
-            <span class="opt-label">EC</span>
-            <div class="ec-group" id="ec-group">
-              <button class="ec-btn" data-ec="L">L</button>
-              <button class="ec-btn active" data-ec="M">M</button>
-              <button class="ec-btn" data-ec="Q">Q</button>
-              <button class="ec-btn" data-ec="H">H</button>
-            </div>
-            <span class="ec-note" id="ec-note"></span>
-          </div>
-          <div class="opt-row">
             <span class="opt-label">max</span>
             <select id="qr-size">
               <option value="256">Small (256px)</option>
@@ -181,10 +134,6 @@
           <div class="logo-info" id="logo-info">
             <span class="logo-name" id="logo-name"></span>
             <button class="logo-clear" id="logo-clear">✕ remove</button>
-            <span class="ec-note">EC upgraded to H</span>
-            <span class="logo-border-wrap">
-              border <input type="number" id="trim-border" value="0" min="0" max="50">%
-            </span>
           </div>
         </div>
       </section>
@@ -207,14 +156,11 @@
 <script>
 (() => {
   const qrInput    = document.getElementById('qr-input');
-  const ecGroup    = document.getElementById('ec-group');
-  const ecNote     = document.getElementById('ec-note');
   const qrSize     = document.getElementById('qr-size');
   const logoFile   = document.getElementById('logo-file');
   const logoInfo   = document.getElementById('logo-info');
   const logoName   = document.getElementById('logo-name');
   const logoClear  = document.getElementById('logo-clear');
-  const trimBorder = document.getElementById('trim-border');
   const qrOutput   = document.getElementById('qr-output');
   const statChars  = document.getElementById('stat-chars');
   const statQr     = document.getElementById('stat-qr');
@@ -237,21 +183,7 @@
 
   new ResizeObserver(() => { fittedWidth = calcWidth(); render(); }).observe(qrOutput);
 
-  function getEc() { return ecGroup.querySelector('.active')?.dataset.ec || 'M'; }
-
-  function setEc(level) {
-    ecGroup.querySelectorAll('.ec-btn').forEach(b => b.classList.toggle('active', b.dataset.ec === level));
-  }
-
-  function effectiveEc() { return logoImage ? 'H' : getEc(); }
-
-  ecGroup.addEventListener('click', e => {
-    const btn = e.target.closest('.ec-btn');
-    if (!btn) return;
-    setEc(btn.dataset.ec);
-    ecNote.textContent = (logoImage && btn.dataset.ec !== 'H') ? '(logo requires H — using H)' : '';
-    render();
-  });
+  function effectiveEc() { return logoImage ? 'H' : 'M'; }
 
   logoFile.addEventListener('change', () => {
     const file = logoFile.files[0];
@@ -261,7 +193,6 @@
       logoImage = img;
       logoName.textContent = file.name;
       logoInfo.classList.add('visible');
-      ecNote.textContent = '';
       render();
     };
     img.src = URL.createObjectURL(file);
@@ -271,11 +202,10 @@
     logoImage = null;
     logoFile.value = '';
     logoInfo.classList.remove('visible');
-    ecNote.textContent = '';
     render();
   });
 
-  function trimImage(img, borderPct) {
+  function trimImage(img) {
     const oc = document.createElement('canvas');
     oc.width = img.naturalWidth; oc.height = img.naturalHeight;
     const ctx = oc.getContext('2d');
@@ -293,11 +223,8 @@
       }
     }
     if (minX > maxX || minY > maxY) return oc;
-    const contentW = maxX - minX + 1, contentH = maxY - minY + 1;
-    const border = Math.round(Math.max(contentW, contentH) * borderPct / 100);
-    const cropX = Math.max(0, minX - border), cropY = Math.max(0, minY - border);
-    const cropW = Math.min(width, maxX + border + 1) - cropX;
-    const cropH = Math.min(height, maxY + border + 1) - cropY;
+    const cropX = minX, cropY = minY;
+    const cropW = maxX - minX + 1, cropH = maxY - minY + 1;
     const result = document.createElement('canvas');
     result.width = cropW; result.height = cropH;
     result.getContext('2d').drawImage(oc, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
@@ -306,7 +233,7 @@
 
   function overlayLogo(canvas) {
     if (!logoImage) return;
-    const source = trimImage(logoImage, parseInt(trimBorder.value, 10) || 0);
+    const source = trimImage(logoImage);
     const ctx = canvas.getContext('2d');
     const sz     = canvas.width;
     const logoSz = Math.round(sz * 0.22);
@@ -331,7 +258,7 @@
     statChars.textContent = `${text.length} chars`;
 
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, ec: getEc(), size: qrSize.value }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, size: qrSize.value }));
     } catch {}
 
     if (!text.trim()) {
@@ -357,8 +284,8 @@
       wrap.appendChild(canvas);
       qrOutput.appendChild(wrap);
 
-      statQr.textContent = `EC: ${ec} · ${width}px`;
-      metaEl.textContent = `${text.length} chars · EC: ${ec} · ${width}px`;
+      statQr.textContent = `${width}px`;
+      metaEl.textContent = `${text.length} chars · ${width}px`;
       btnDownload.disabled = false;
 
       const dataUrl = canvas.toDataURL('image/png');
@@ -374,14 +301,11 @@
   let _t;
   qrInput.addEventListener('input', () => { clearTimeout(_t); _t = setTimeout(render, 200); });
   qrSize.addEventListener('change', () => { fittedWidth = calcWidth(); render(); });
-  trimBorder.addEventListener('change', render);
-
   btnClear.addEventListener('click', () => {
     qrInput.value = '';
     logoImage = null;
     logoFile.value = '';
     logoInfo.classList.remove('visible');
-    ecNote.textContent = '';
     render();
     qrInput.focus();
   });
@@ -396,7 +320,6 @@
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     if (saved.text) qrInput.value = saved.text;
-    if (saved.ec)   setEc(saved.ec);
     if (saved.size) qrSize.value = saved.size;
   } catch {}
 
