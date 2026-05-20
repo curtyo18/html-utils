@@ -313,12 +313,14 @@
     const pad    = Math.round(sz * 0.03);
     const cx = Math.round((sz - logoSz) / 2);
     const cy = Math.round((sz - logoSz) / 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - pad, cy - pad, logoSz + pad * 2, logoSz + pad * 2);
     const ratio = source.width / source.height;
     const drawW = ratio >= 1 ? logoSz : Math.round(logoSz * ratio);
     const drawH = ratio >= 1 ? Math.round(logoSz / ratio) : logoSz;
-    ctx.drawImage(source, cx + Math.round((logoSz - drawW) / 2), cy + Math.round((logoSz - drawH) / 2), drawW, drawH);
+    const imgX = cx + Math.round((logoSz - drawW) / 2);
+    const imgY = cy + Math.round((logoSz - drawH) / 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(imgX - pad, imgY - pad, drawW + pad * 2, drawH + pad * 2);
+    ctx.drawImage(source, imgX, imgY, drawW, drawH);
   }
 
   function render() {
