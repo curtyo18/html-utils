@@ -254,14 +254,17 @@
   function overlayLogo(canvas) {
     if (!logoImage) return;
     const ctx = canvas.getContext('2d');
-    const sz  = canvas.width;
+    const sz     = canvas.width;
     const logoSz = Math.round(sz * 0.22);
     const pad    = Math.round(sz * 0.03);
-    const x = Math.round((sz - logoSz) / 2);
-    const y = Math.round((sz - logoSz) / 2);
+    const cx = Math.round((sz - logoSz) / 2);
+    const cy = Math.round((sz - logoSz) / 2);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(x - pad, y - pad, logoSz + pad * 2, logoSz + pad * 2);
-    ctx.drawImage(logoImage, x, y, logoSz, logoSz);
+    ctx.fillRect(cx - pad, cy - pad, logoSz + pad * 2, logoSz + pad * 2);
+    const ratio = logoImage.naturalWidth / logoImage.naturalHeight;
+    const drawW = ratio >= 1 ? logoSz : Math.round(logoSz * ratio);
+    const drawH = ratio >= 1 ? Math.round(logoSz / ratio) : logoSz;
+    ctx.drawImage(logoImage, cx + Math.round((logoSz - drawW) / 2), cy + Math.round((logoSz - drawH) / 2), drawW, drawH);
   }
 
   function render() {
