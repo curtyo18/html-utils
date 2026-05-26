@@ -114,6 +114,38 @@
   const game = new Chess();
   let orientation = 'white';
 
+  // ── Difficulty ladder ──
+  // Each tier: { randomChance: 0..1, skill: 0..20, depth: 1..20 }.
+  // On bot's turn: roll RNG vs randomChance — hit → pick uniform-random legal
+  // move; miss → ask Stockfish for best at (skill, depth).
+  const TIERS = {
+    'easiest':    { randomChance: 0.90, skill: 0,  depth: 1 },
+    'very-easy':  { randomChance: 0.70, skill: 0,  depth: 1 },
+    'easy':       { randomChance: 0.40, skill: 3,  depth: 2 },
+    'medium':     { randomChance: 0.10, skill: 8,  depth: 4 },
+    'hard':       { randomChance: 0,    skill: 14, depth: 8 },
+    'expert':     { randomChance: 0,    skill: 20, depth: 12 },
+  };
+  const STORAGE_KEY = 'html-utils:chess';
+  const difficultyEl = document.getElementById('difficulty');
+
+  function loadDifficulty() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && TIERS[saved]) difficultyEl.value = saved;
+    } catch {}
+  }
+
+  function currentTier() {
+    return TIERS[difficultyEl.value] ?? TIERS['easy'];
+  }
+
+  difficultyEl.addEventListener('change', () => {
+    try { localStorage.setItem(STORAGE_KEY, difficultyEl.value); } catch {}
+  });
+
+  loadDifficulty();
+
   // ── Stockfish Worker (loaded via same-origin blob → importScripts(CDN)) ──
   // Cross-origin `new Worker('https://...')` is blocked by browsers; the blob
   // trick gives us a same-origin script that pulls in the engine. Engine v10
@@ -151,9 +183,22 @@
 
   async function botMove() {
     if (game.isGameOver()) return;
+    const tier = currentTier();
+
+    // Random-move branch: pick uniform-random legal move, play instantly.
+    if (Math.random() < tier.randomChance) {
+      const legal = game.moves({ verbose: true });
+      if (legal.length === 0) return;
+      const pick = legal[Math.floor(Math.random() * legal.length)];
+      game.move({ from: pick.from, to: pick.to, promotion: pick.promotion });
+      syncBoard();
+      renderStatus();
+      return;
+    }
+
+    // Engine branch.
     statusEl.textContent = 'Bot thinking…';
-    // Hardcoded best-move at depth 4, skill 8 for now; Task 4 wires the ladder.
-    const uci = await engineBestMove(game.fen(), 4, 8);
+    const uci = await engineBestMove(game.fen(), tier.depth, tier.skill);
     if (!uci || uci === '(none)') return;
     const from = uci.slice(0, 2);
     const to = uci.slice(2, 4);
