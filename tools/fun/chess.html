@@ -170,7 +170,7 @@
   <main class="main">
     <div class="board-wrap">
       <div class="board-stage">
-        <chess-board id="board" position="start" draggable-pieces move-speed="550" trash-speed="350"></chess-board>
+        <chess-board id="board" position="start" draggable-pieces move-speed="800" trash-speed="350"></chess-board>
         <div class="banner" id="banner">
           <div class="banner-card">
             <div class="banner-headline" id="banner-headline"></div>
@@ -480,8 +480,22 @@
     const move = tryMove({ from, to, promotion });
     if (move === null) return;
     syncBoard();
+    paintLastMove(from, to);
     renderStatus();
   }
+
+  // ── Bot last-move highlight ──
+  // Background tint on the bot's from/to squares, persisting until the
+  // player makes their next move. Uses background-image (linear-gradient) so
+  // it layers cleanly with the box-shadow rings used by check highlighting.
+  const lastMoveStyle = document.head.appendChild(document.createElement('style'));
+  function paintLastMove(from, to) {
+    const tint = (a) => `linear-gradient(rgba(224,200,120,${a}),rgba(224,200,120,${a}))`;
+    lastMoveStyle.textContent =
+      `chess-board::part(${from}){background-image:${tint(0.32)};}` +
+      `chess-board::part(${to}){background-image:${tint(0.5)};}`;
+  }
+  function clearLastMove() { lastMoveStyle.textContent = ''; }
 
   // ── Check / checkmate king highlight ──
   // Painted via inset box-shadow on the king's square (using the same
@@ -573,6 +587,7 @@
     if (source === target) { setAction('snapback'); return; }
     const move = tryMove({ from: source, to: target, promotion: 'q' });
     if (move === null) { setAction('snapback'); return; }
+    clearLastMove();
     queueMicrotask(async () => {
       syncBoard();
       renderStatus();
@@ -586,6 +601,7 @@
     game.reset();
     pendingResolve = null;
     gameResolved = false;
+    clearLastMove();
     syncBoard();
     renderStatus();
   }
