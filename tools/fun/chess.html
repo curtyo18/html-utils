@@ -102,12 +102,85 @@
 </div>
 
 <script type="module">
-  // Imports will fail loudly in console if CDN is unreachable; Task 5 adds graceful error UI.
   import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.6/+esm';
   import 'https://cdn.jsdelivr.net/npm/chessboard-element@1.2.0/+esm';
 
-  // Stash on window so subsequent tasks can wire logic. Pure scaffold for now.
-  window.__chess = { Chess };
+  const board    = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const bannerEl = document.getElementById('banner');
+  const btnNew   = document.getElementById('btn-new');
+  const btnFlip  = document.getElementById('btn-flip');
+
+  const game = new Chess();
+  let orientation = 'white';
+
+  function syncBoard() {
+    // chess.js .fen() position-part is what chessboard-element accepts.
+    board.position = game.fen().split(' ')[0];
+  }
+
+  function renderStatus() {
+    if (game.isGameOver()) {
+      let msg;
+      if (game.isCheckmate()) {
+        msg = (game.turn() === 'w' ? 'Black' : 'White') + ' wins by checkmate';
+      } else if (game.isStalemate()) {
+        msg = 'Draw — stalemate';
+      } else if (game.isThreefoldRepetition()) {
+        msg = 'Draw — threefold repetition';
+      } else if (game.isInsufficientMaterial()) {
+        msg = 'Draw — insufficient material';
+      } else if (game.isDraw()) {
+        msg = 'Draw — 50-move rule';
+      } else {
+        msg = 'Game over';
+      }
+      bannerEl.textContent = msg;
+      bannerEl.classList.add('visible');
+      statusEl.textContent = msg;
+    } else {
+      bannerEl.classList.remove('visible');
+      bannerEl.textContent = '';
+      const turn = game.turn() === 'w' ? 'White' : 'Black';
+      statusEl.textContent = turn + ' to move' + (game.inCheck() ? ' · check' : '');
+    }
+  }
+
+  // chessboard-element fires 'drag-start' before drag begins.
+  // Cancel drag for the wrong side or after game over.
+  board.addEventListener('drag-start', (e) => {
+    if (game.isGameOver()) { e.preventDefault(); return; }
+    const piece = e.detail.piece;          // e.g. 'wP', 'bN'
+    const turn = game.turn();              // 'w' or 'b'
+    if (!piece || piece[0] !== turn) { e.preventDefault(); }
+  });
+
+  // 'drop' fires when the user releases a dragged piece on a square.
+  board.addEventListener('drop', (e) => {
+    const { source, target, setAction } = e.detail;
+    if (source === target) { setAction('snapback'); return; }
+    const move = game.move({ from: source, to: target, promotion: 'q' });
+    if (move === null) { setAction('snapback'); return; }
+    // Move accepted; let board complete the drop animation. Sync FEN for safety.
+    queueMicrotask(() => { syncBoard(); renderStatus(); });
+  });
+
+  btnFlip.addEventListener('click', () => {
+    orientation = orientation === 'white' ? 'black' : 'white';
+    board.orientation = orientation;
+  });
+
+  btnNew.addEventListener('click', () => {
+    game.reset();
+    syncBoard();
+    renderStatus();
+  });
+
+  syncBoard();
+  renderStatus();
+
+  // Stash for next task.
+  window.__chess = { game, board, syncBoard, renderStatus };
 </script>
 </body>
 </html>
