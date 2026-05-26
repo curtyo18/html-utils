@@ -267,8 +267,9 @@
   }
 
   function syncBoard() {
-    // chess.js .fen() position-part is what chessboard-element accepts.
-    board.position = game.fen().split(' ')[0];
+    // setPosition() handles FEN strings; the position *property* setter expects
+    // a PositionObject (only the HTML *attribute* converter parses FEN/'start').
+    board.setPosition(game.fen(), false);
   }
 
   function renderStatus() {
