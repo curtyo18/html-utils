@@ -114,6 +114,56 @@
   const game = new Chess();
   let orientation = 'white';
 
+  // ── Stockfish Worker (loaded via same-origin blob → importScripts(CDN)) ──
+  // Cross-origin `new Worker('https://...')` is blocked by browsers; the blob
+  // trick gives us a same-origin script that pulls in the engine. Engine v10
+  // bundles wasm+asm.js in a single file, so no separate .wasm fetch.
+  const STOCKFISH_URL = 'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js';
+  const workerSrc = `importScripts('${STOCKFISH_URL}');`;
+  const workerBlob = new Blob([workerSrc], { type: 'application/javascript' });
+  const engine = new Worker(URL.createObjectURL(workerBlob));
+
+  // Tracks the resolver waiting on the next 'bestmove' line.
+  let pendingResolve = null;
+
+  engine.addEventListener('message', (e) => {
+    const line = typeof e.data === 'string' ? e.data : '';
+    if (line.startsWith('bestmove') && pendingResolve) {
+      const parts = line.split(/\s+/);
+      const best = parts[1]; // e.g. 'e2e4' or 'e7e8q' (with promotion)
+      const r = pendingResolve; pendingResolve = null;
+      r(best);
+    }
+  });
+
+  // Boot UCI handshake.
+  engine.postMessage('uci');
+  engine.postMessage('isready');
+
+  function engineBestMove(fen, depth, skill) {
+    return new Promise((resolve) => {
+      pendingResolve = resolve;
+      engine.postMessage('setoption name Skill Level value ' + skill);
+      engine.postMessage('position fen ' + fen);
+      engine.postMessage('go depth ' + depth);
+    });
+  }
+
+  async function botMove() {
+    if (game.isGameOver()) return;
+    statusEl.textContent = 'Bot thinking…';
+    // Hardcoded best-move at depth 4, skill 8 for now; Task 4 wires the ladder.
+    const uci = await engineBestMove(game.fen(), 4, 8);
+    if (!uci || uci === '(none)') return;
+    const from = uci.slice(0, 2);
+    const to = uci.slice(2, 4);
+    const promotion = uci.length === 5 ? uci[4] : undefined;
+    const move = game.move({ from, to, promotion });
+    if (move === null) return;
+    syncBoard();
+    renderStatus();
+  }
+
   function syncBoard() {
     // chess.js .fen() position-part is what chessboard-element accepts.
     board.position = game.fen().split(' ')[0];
@@ -161,8 +211,11 @@
     if (source === target) { setAction('snapback'); return; }
     const move = game.move({ from: source, to: target, promotion: 'q' });
     if (move === null) { setAction('snapback'); return; }
-    // Move accepted; let board complete the drop animation. Sync FEN for safety.
-    queueMicrotask(() => { syncBoard(); renderStatus(); });
+    queueMicrotask(async () => {
+      syncBoard();
+      renderStatus();
+      if (!game.isGameOver()) await botMove();
+    });
   });
 
   btnFlip.addEventListener('click', () => {
@@ -171,7 +224,10 @@
   });
 
   btnNew.addEventListener('click', () => {
+    engine.postMessage('stop');
+    engine.postMessage('position startpos');
     game.reset();
+    pendingResolve = null;
     syncBoard();
     renderStatus();
   });
