@@ -170,7 +170,7 @@
   <main class="main">
     <div class="board-wrap">
       <div class="board-stage">
-        <chess-board id="board" position="start" draggable-pieces move-speed="450"></chess-board>
+        <chess-board id="board" position="start" draggable-pieces move-speed="450" trash-speed="350"></chess-board>
         <div class="banner" id="banner">
           <div class="banner-card">
             <div class="banner-headline" id="banner-headline"></div>
@@ -420,7 +420,12 @@
       renderStatus();
       return;
     }
-    const uci = await engineBestMove(game.fen(), tier.depth, tier.skill);
+    // Engine branch — Stockfish search overlaps a minimum delay so even a
+    // sub-50ms reply at low depth doesn't snap on top of the player's drop.
+    const [uci] = await Promise.all([
+      engineBestMove(game.fen(), tier.depth, tier.skill),
+      new Promise(r => setTimeout(r, 350)),
+    ]);
     if (!uci || uci === '(none)') return;
     const from = uci.slice(0, 2);
     const to = uci.slice(2, 4);
@@ -440,6 +445,41 @@
   // chess.js v1 throws on illegal moves instead of returning null.
   function tryMove(opts) {
     try { return game.move(opts); } catch { return null; }
+  }
+
+  // ── Check / checkmate king highlight ──
+  // Painted via inset box-shadow on the king's square (using the same
+  // chess-board::part(<square>) trick as the move hints). Box-shadow doesn't
+  // conflict with the background-image hint rendering on adjacent squares.
+  const checkStyle = document.head.appendChild(document.createElement('style'));
+
+  function findKing(color) {
+    const board2d = game.board();
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const sq = board2d[r][c];
+        if (sq && sq.type === 'k' && sq.color === color) {
+          return 'abcdefgh'[c] + (8 - r);
+        }
+      }
+    }
+    return null;
+  }
+
+  function paintKing() {
+    if (game.isCheckmate()) {
+      const sq = findKing(game.turn());
+      checkStyle.textContent = sq
+        ? `chess-board::part(${sq}){box-shadow:inset 0 0 0 7px rgba(217,123,123,0.95);}`
+        : '';
+    } else if (game.inCheck()) {
+      const sq = findKing(game.turn());
+      checkStyle.textContent = sq
+        ? `chess-board::part(${sq}){box-shadow:inset 0 0 0 5px rgba(217,123,123,0.7);}`
+        : '';
+    } else {
+      checkStyle.textContent = '';
+    }
   }
 
   function renderStatus() {
@@ -474,6 +514,7 @@
     } else {
       bannerEl.classList.remove('visible');
     }
+    paintKing();
   }
 
   // chessboard-element fires 'drag-start' before drag begins.
