@@ -16,9 +16,13 @@
     gap: 14px;
     min-height: 0;
   }
-  chess-board {
+  .board-stage {
+    position: relative;
     width: 100%;
     max-width: 480px;
+  }
+  chess-board {
+    width: 100%;
     aspect-ratio: 1 / 1;
     --light-color: #e6d3b3;
     --dark-color: #8a6a4c;
@@ -32,15 +36,43 @@
     text-align: center;
   }
   .banner {
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--accent);
-    padding: 8px 14px;
-    border: 1px solid var(--accent-dim);
-    border-radius: var(--r);
+    position: absolute;
+    inset: 0;
     display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(14, 16, 20, 0.72);
+    backdrop-filter: blur(2px);
+    border-radius: var(--r);
+    z-index: 10;
   }
-  .banner.visible { display: block; }
+  .banner.visible { display: flex; }
+  .banner-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 22px 28px;
+    background: var(--bg-1);
+    border: 1px solid var(--accent);
+    border-radius: var(--r-lg);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    max-width: 80%;
+    text-align: center;
+  }
+  .banner-headline {
+    font-family: var(--mono);
+    font-size: 22px;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+  .banner-sub {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
   .fatal {
     font-family: var(--mono);
     font-size: 13px;
@@ -144,8 +176,16 @@
 
   <main class="main">
     <div class="board-wrap">
-      <chess-board id="board" position="start" draggable-pieces move-speed="450"></chess-board>
-      <div class="banner" id="banner"></div>
+      <div class="board-stage">
+        <chess-board id="board" position="start" draggable-pieces move-speed="450"></chess-board>
+        <div class="banner" id="banner">
+          <div class="banner-card">
+            <div class="banner-headline" id="banner-headline"></div>
+            <div class="banner-sub" id="banner-sub"></div>
+            <button class="btn primary" id="btn-banner-new">play again</button>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -174,12 +214,15 @@
     throw err;
   }
 
-  const board    = document.getElementById('board');
-  const statusEl = document.getElementById('status');
-  const bannerEl = document.getElementById('banner');
-  const btnNew   = document.getElementById('btn-new');
-  const btnFlip  = document.getElementById('btn-flip');
-  const hintsEl  = document.getElementById('opt-hints');
+  const board         = document.getElementById('board');
+  const statusEl      = document.getElementById('status');
+  const bannerEl      = document.getElementById('banner');
+  const bannerHeadEl  = document.getElementById('banner-headline');
+  const bannerSubEl   = document.getElementById('banner-sub');
+  const btnBannerNew  = document.getElementById('btn-banner-new');
+  const btnNew        = document.getElementById('btn-new');
+  const btnFlip       = document.getElementById('btn-flip');
+  const hintsEl       = document.getElementById('opt-hints');
 
   const game = new Chess();
   let orientation = 'white';
@@ -370,26 +413,29 @@
 
   function renderStatus() {
     if (game.isGameOver()) {
-      let msg;
+      // Player is always White. Loser-of-checkmate is whose turn it now is.
+      let headline, sub;
       if (game.isCheckmate()) {
-        msg = (game.turn() === 'w' ? 'Black' : 'White') + ' wins by checkmate';
+        const playerLost = game.turn() === 'w';
+        headline = playerLost ? 'You lose' : 'You win!';
+        sub = 'checkmate';
       } else if (game.isStalemate()) {
-        msg = 'Draw — stalemate';
+        headline = 'Draw'; sub = 'stalemate';
       } else if (game.isThreefoldRepetition()) {
-        msg = 'Draw — threefold repetition';
+        headline = 'Draw'; sub = 'threefold repetition';
       } else if (game.isInsufficientMaterial()) {
-        msg = 'Draw — insufficient material';
+        headline = 'Draw'; sub = 'insufficient material';
       } else if (game.isDraw()) {
-        msg = 'Draw — 50-move rule';
+        headline = 'Draw'; sub = '50-move rule';
       } else {
-        msg = 'Game over';
+        headline = 'Game over'; sub = '';
       }
-      bannerEl.textContent = msg;
+      bannerHeadEl.textContent = headline;
+      bannerSubEl.textContent = sub;
       bannerEl.classList.add('visible');
-      statusEl.textContent = msg;
+      statusEl.textContent = headline + (sub ? ' · ' + sub : '');
     } else {
       bannerEl.classList.remove('visible');
-      bannerEl.textContent = '';
       const turn = game.turn() === 'w' ? 'White' : 'Black';
       statusEl.textContent = turn + ' to move' + (game.inCheck() ? ' · check' : '');
     }
@@ -424,14 +470,16 @@
     board.orientation = orientation;
   });
 
-  btnNew.addEventListener('click', () => {
+  function newGame() {
     engine.postMessage('stop');
     engine.postMessage('position startpos');
     game.reset();
     pendingResolve = null;
     syncBoard();
     renderStatus();
-  });
+  }
+  btnNew.addEventListener('click', newGame);
+  btnBannerNew.addEventListener('click', newGame);
 
   syncBoard();
   renderStatus();
