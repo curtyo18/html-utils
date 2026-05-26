@@ -65,6 +65,20 @@
     border-top: 1px solid var(--border);
     background: var(--bg-1);
   }
+  .toolbar select {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 3px 8px;
+    height: 28px;
+    outline: none;
+    cursor: pointer;
+  }
+  .toolbar select:hover { border-color: var(--border-strong); }
+  .toolbar select:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   .opt {
     display: inline-flex;
     align-items: center;
