@@ -260,7 +260,7 @@
     const from = uci.slice(0, 2);
     const to = uci.slice(2, 4);
     const promotion = uci.length === 5 ? uci[4] : undefined;
-    const move = game.move({ from, to, promotion });
+    const move = tryMove({ from, to, promotion });
     if (move === null) return;
     syncBoard();
     renderStatus();
@@ -270,6 +270,11 @@
     // setPosition() handles FEN strings; the position *property* setter expects
     // a PositionObject (only the HTML *attribute* converter parses FEN/'start').
     board.setPosition(game.fen(), false);
+  }
+
+  // chess.js v1 throws on illegal moves instead of returning null.
+  function tryMove(opts) {
+    try { return game.move(opts); } catch { return null; }
   }
 
   function renderStatus() {
@@ -312,7 +317,7 @@
   board.addEventListener('drop', (e) => {
     const { source, target, setAction } = e.detail;
     if (source === target) { setAction('snapback'); return; }
-    const move = game.move({ from: source, to: target, promotion: 'q' });
+    const move = tryMove({ from: source, to: target, promotion: 'q' });
     if (move === null) { setAction('snapback'); return; }
     queueMicrotask(async () => {
       syncBoard();
