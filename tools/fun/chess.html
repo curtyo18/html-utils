@@ -65,6 +65,37 @@
     border-top: 1px solid var(--border);
     background: var(--bg-1);
   }
+  .opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .opt input[type="checkbox"] {
+    appearance: none;
+    width: 14px; height: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    margin: 0;
+  }
+  .opt input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+  .opt input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px; top: 0px;
+    width: 5px; height: 9px;
+    border: solid #1a1208;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .opt:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -91,6 +122,7 @@
       <option value="expert">Expert</option>
     </select>
     <button class="btn ghost" id="btn-flip">flip board</button>
+    <label class="opt"><input type="checkbox" id="opt-hints" checked>show move hints</label>
     <div class="spacer"></div>
     <span class="label" id="status">White to move</span>
     <button class="btn primary" id="btn-new">new game</button>
@@ -133,9 +165,49 @@
   const bannerEl = document.getElementById('banner');
   const btnNew   = document.getElementById('btn-new');
   const btnFlip  = document.getElementById('btn-flip');
+  const hintsEl  = document.getElementById('opt-hints');
 
   const game = new Chess();
   let orientation = 'white';
+
+  // ── Legal-move hints ──
+  // chessboard-element renders every square with its name as a CSS part
+  // (part="square e4 white"), so we target individual squares via
+  // chess-board::part(e4). We inject a tiny dynamic stylesheet on drag-start
+  // and clear it on drop. Empty squares get a dot; capture squares get a ring.
+  const HINTS_KEY = 'html-utils:chess:hints';
+  const hintStyle = document.head.appendChild(document.createElement('style'));
+
+  try {
+    const saved = localStorage.getItem(HINTS_KEY);
+    if (saved !== null) hintsEl.checked = saved === '1';
+  } catch {}
+  hintsEl.addEventListener('change', () => {
+    try { localStorage.setItem(HINTS_KEY, hintsEl.checked ? '1' : '0'); } catch {}
+    if (!hintsEl.checked) hintStyle.textContent = '';
+  });
+
+  function showHints(fromSquare) {
+    if (!hintsEl.checked) return;
+    const legal = game.moves({ square: fromSquare, verbose: true });
+    if (legal.length === 0) { hintStyle.textContent = ''; return; }
+    const dots = [], rings = [];
+    for (const m of legal) {
+      if (m.flags.includes('c') || m.flags.includes('e')) rings.push(m.to);
+      else dots.push(m.to);
+    }
+    const sel = (sqs) => sqs.map(s => `chess-board::part(${s})`).join(',');
+    let css = '';
+    if (dots.length) {
+      css += sel(dots) + '{background-image:radial-gradient(circle,rgba(0,0,0,0.25) 18%,transparent 20%);}';
+    }
+    if (rings.length) {
+      css += sel(rings) + '{background-image:radial-gradient(circle,transparent 48%,rgba(0,0,0,0.32) 50%,rgba(0,0,0,0.32) 56%,transparent 58%);}';
+    }
+    hintStyle.textContent = css;
+  }
+
+  function clearHints() { hintStyle.textContent = ''; }
 
   // ── Difficulty ladder ──
   // Each tier: { randomChance: 0..1, skill: 0..20, depth: 1..20 }.
@@ -266,10 +338,10 @@
     renderStatus();
   }
 
-  function syncBoard() {
+  function syncBoard(animate = true) {
     // setPosition() handles FEN strings; the position *property* setter expects
     // a PositionObject (only the HTML *attribute* converter parses FEN/'start').
-    board.setPosition(game.fen(), false);
+    board.setPosition(game.fen(), animate);
   }
 
   // chess.js v1 throws on illegal moves instead of returning null.
@@ -310,12 +382,14 @@
     if (game.isGameOver()) { e.preventDefault(); return; }
     const piece = e.detail.piece;          // e.g. 'wP', 'bN'
     const turn = game.turn();              // 'w' or 'b'
-    if (!piece || piece[0] !== turn) { e.preventDefault(); }
+    if (!piece || piece[0] !== turn) { e.preventDefault(); return; }
+    showHints(e.detail.source);
   });
 
   // 'drop' fires when the user releases a dragged piece on a square.
   board.addEventListener('drop', (e) => {
     const { source, target, setAction } = e.detail;
+    clearHints();
     if (source === target) { setAction('snapback'); return; }
     const move = tryMove({ from: source, to: target, promotion: 'q' });
     if (move === null) { setAction('snapback'); return; }
