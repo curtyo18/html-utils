@@ -249,7 +249,10 @@
       css += sel(dots) + '{background-image:radial-gradient(circle,rgba(0,0,0,0.25) 18%,transparent 20%);}';
     }
     if (rings.length) {
-      css += sel(rings) + '{background-image:radial-gradient(circle,transparent 48%,rgba(0,0,0,0.32) 50%,rgba(0,0,0,0.32) 56%,transparent 58%);}';
+      // Push the ring out to ~80% of the radius so it shows in the square's
+      // corners around the piece, not under it. Red signals "capture" and
+      // stays visible against both light and dark pieces.
+      css += sel(rings) + '{background-image:radial-gradient(circle,transparent 78%,rgba(217,80,80,0.85) 80%,rgba(217,80,80,0.85) 88%,transparent 90%);}';
     }
     hintStyle.textContent = css;
   }
