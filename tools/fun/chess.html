@@ -22,7 +22,6 @@
   .board-stage {
     position: relative;
     width: min(100%, calc(100dvh - 180px));
-    max-width: 640px;
     aspect-ratio: 1 / 1;
   }
   chess-board {
@@ -31,13 +30,6 @@
     --light-color: #e6d3b3;
     --dark-color: #8a6a4c;
     --highlight-color: rgba(224, 168, 120, 0.55);
-  }
-  .status {
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--text-dim);
-    min-height: 18px;
-    text-align: center;
   }
   .banner {
     position: absolute;
@@ -162,19 +154,16 @@
   </header>
 
   <div class="toolbar">
-    <span class="label">difficulty</span>
     <select id="difficulty">
       <option value="easiest">Easiest</option>
-      <option value="very-easy">Very Easy</option>
+      <option value="very-easy">Easier</option>
       <option value="easy" selected>Easy</option>
       <option value="medium">Medium</option>
       <option value="hard">Hard</option>
       <option value="expert">Expert</option>
     </select>
-    <button class="btn ghost" id="btn-flip">flip board</button>
     <label class="opt"><input type="checkbox" id="opt-hints" checked>show move hints</label>
     <div class="spacer"></div>
-    <span class="label" id="status">White to move</span>
     <button class="btn primary" id="btn-new">new game</button>
   </div>
 
@@ -205,7 +194,6 @@
       main.innerHTML = '<div class="fatal-wrap"><div class="fatal">'
         + msg + '<br><br>Check your connection and reload.</div></div>';
     }
-    document.getElementById('status').textContent = 'unavailable';
     console.error('[chess] fatal:', msg);
   }
 
@@ -219,18 +207,15 @@
   }
 
   const board         = document.getElementById('board');
-  const statusEl      = document.getElementById('status');
   const metaEl        = document.getElementById('meta');
   const bannerEl      = document.getElementById('banner');
   const bannerHeadEl  = document.getElementById('banner-headline');
   const bannerSubEl   = document.getElementById('banner-sub');
   const btnBannerNew  = document.getElementById('btn-banner-new');
   const btnNew        = document.getElementById('btn-new');
-  const btnFlip       = document.getElementById('btn-flip');
   const hintsEl       = document.getElementById('opt-hints');
 
   const game = new Chess();
-  let orientation = 'white';
 
   // ── Legal-move hints ──
   // chessboard-element renders every square with its name as a CSS part
@@ -435,7 +420,6 @@
       renderStatus();
       return;
     }
-    statusEl.textContent = 'Bot thinking…';
     const uci = await engineBestMove(game.fen(), tier.depth, tier.skill);
     if (!uci || uci === '(none)') return;
     const from = uci.slice(0, 2);
@@ -487,11 +471,8 @@
       bannerHeadEl.textContent = headline;
       bannerSubEl.textContent = sub;
       bannerEl.classList.add('visible');
-      statusEl.textContent = headline + (sub ? ' · ' + sub : '');
     } else {
       bannerEl.classList.remove('visible');
-      const turn = game.turn() === 'w' ? 'White' : 'Black';
-      statusEl.textContent = turn + ' to move' + (game.inCheck() ? ' · check' : '');
     }
   }
 
@@ -517,11 +498,6 @@
       renderStatus();
       if (!game.isGameOver()) await botMove();
     });
-  });
-
-  btnFlip.addEventListener('click', () => {
-    orientation = orientation === 'white' ? 'black' : 'white';
-    board.orientation = orientation;
   });
 
   function newGame() {
