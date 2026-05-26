@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>chess · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  .board-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    gap: 14px;
+    min-height: 0;
+  }
+  chess-board {
+    width: 100%;
+    max-width: 480px;
+    aspect-ratio: 1 / 1;
+    --light-color: #e6d3b3;
+    --dark-color: #8a6a4c;
+    --highlight-color: rgba(224, 168, 120, 0.55);
+  }
+  .status {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    min-height: 18px;
+    text-align: center;
+  }
+  .banner {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    padding: 8px 14px;
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--r);
+    display: none;
+  }
+  .banner.visible { display: block; }
+  .fatal {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--del);
+    text-align: center;
+    max-width: 360px;
+    line-height: 1.6;
+  }
+  .credits {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-align: center;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-1);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>fun</span><span class="sep">/</span>
+      <span class="current">chess</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta" id="meta">play vs bot</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="label">difficulty</span>
+    <select id="difficulty">
+      <option value="easiest">Easiest</option>
+      <option value="very-easy">Very Easy</option>
+      <option value="easy" selected>Easy</option>
+      <option value="medium">Medium</option>
+      <option value="hard">Hard</option>
+      <option value="expert">Expert</option>
+    </select>
+    <button class="btn ghost" id="btn-flip">flip board</button>
+    <div class="spacer"></div>
+    <span class="label" id="status">White to move</span>
+    <button class="btn primary" id="btn-new">new game</button>
+  </div>
+
+  <main class="main">
+    <div class="board-wrap">
+      <chess-board id="board" position="start" draggable-pieces></chess-board>
+      <div class="banner" id="banner"></div>
+    </div>
+  </main>
+
+  <div class="credits">
+    Engine: Stockfish (GPL-3.0) · chess.js (MIT) · chessboard-element (Apache-2.0)
+  </div>
+</div>
+
+<script type="module">
+  // Imports will fail loudly in console if CDN is unreachable; Task 5 adds graceful error UI.
+  import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.6/+esm';
+  import 'https://cdn.jsdelivr.net/npm/chessboard-element@1.2.0/+esm';
+
+  // Stash on window so subsequent tasks can wire logic. Pure scaffold for now.
+  window.__chess = { Chess };
+</script>
+</body>
+</html>
