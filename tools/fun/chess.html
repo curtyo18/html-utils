@@ -484,6 +484,20 @@
     renderStatus();
   }
 
+  // ── Tap-to-select selection highlight ──
+  // Background tint marking the currently-tap-selected piece's square.
+  const selectionStyle = document.head.appendChild(document.createElement('style'));
+  let selectedSquare = null;
+  function paintSelection(sq) {
+    selectionStyle.textContent =
+      `chess-board::part(${sq}){background-image:linear-gradient(rgba(224,168,120,0.55),rgba(224,168,120,0.55));}`;
+  }
+  function deselect() {
+    selectedSquare = null;
+    selectionStyle.textContent = '';
+    clearHints();
+  }
+
   // ── Bot last-move highlight ──
   // Background tint on the bot's from/to squares, persisting until the
   // player makes their next move. Uses background-image (linear-gradient) so
@@ -581,10 +595,13 @@
   });
 
   // 'drop' fires when the user releases a dragged piece on a square.
+  // Pure taps (source === target) fall through to the 'click' handler so the
+  // tap-to-select / tap-to-move flow can also handle taps on empty squares.
   board.addEventListener('drop', (e) => {
     const { source, target, setAction } = e.detail;
-    clearHints();
     if (source === target) { setAction('snapback'); return; }
+    clearHints();
+    deselect();
     const move = tryMove({ from: source, to: target, promotion: 'q' });
     if (move === null) { setAction('snapback'); return; }
     clearLastMove();
@@ -595,6 +612,63 @@
     });
   });
 
+  // Tap-to-select then tap-to-move. Listens for `click` and locates the
+  // square via the lib's `part="square <name> <color>"` attribute on each
+  // square element. Works for empty squares too (drag-start/drop don't fire
+  // on those, so click is the only signal).
+  board.addEventListener('click', (e) => {
+    const sqEl = e.composedPath().find(n =>
+      n && n.getAttribute && /(^|\s)square(\s|$)/.test(n.getAttribute('part') || ''));
+    if (!sqEl) return;
+    const parts = sqEl.getAttribute('part').split(/\s+/);
+    const square = parts[1]; // "square e4 white" -> "e4"
+    if (!square) return;
+    handleTap(square);
+  });
+
+  function handleTap(square) {
+    if (game.isGameOver()) return;
+
+    // No prior selection — try to select an own piece on this square.
+    if (selectedSquare === null) {
+      const piece = game.get(square);
+      if (piece && piece.color === game.turn()) {
+        selectedSquare = square;
+        paintSelection(square);
+        showHints(square);
+      }
+      return;
+    }
+
+    // Tapping the same square deselects.
+    if (square === selectedSquare) { deselect(); return; }
+
+    // Try the move from prior-selected to this square.
+    const fromSq = selectedSquare;
+    const move = tryMove({ from: fromSq, to: square, promotion: 'q' });
+    if (move !== null) {
+      deselect();
+      clearLastMove();
+      queueMicrotask(async () => {
+        syncBoard();
+        renderStatus();
+        if (!game.isGameOver()) await botMove();
+      });
+      return;
+    }
+
+    // Illegal target. If the user tapped another own piece, switch selection.
+    const piece = game.get(square);
+    if (piece && piece.color === game.turn()) {
+      deselect();
+      selectedSquare = square;
+      paintSelection(square);
+      showHints(square);
+    } else {
+      deselect();
+    }
+  }
+
   function newGame() {
     engine.postMessage('stop');
     engine.postMessage('position startpos');
@@ -602,6 +676,7 @@
     pendingResolve = null;
     gameResolved = false;
     clearLastMove();
+    deselect();
     syncBoard();
     renderStatus();
   }
