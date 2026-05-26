@@ -467,19 +467,22 @@
   }
 
   function paintKing() {
-    if (game.isCheckmate()) {
-      const sq = findKing(game.turn());
-      checkStyle.textContent = sq
-        ? `chess-board::part(${sq}){box-shadow:inset 0 0 0 7px rgba(217,123,123,0.95);}`
-        : '';
-    } else if (game.inCheck()) {
-      const sq = findKing(game.turn());
-      checkStyle.textContent = sq
-        ? `chess-board::part(${sq}){box-shadow:inset 0 0 0 5px rgba(217,123,123,0.7);}`
-        : '';
-    } else {
-      checkStyle.textContent = '';
+    const rules = [];
+    const inMate = game.isCheckmate();
+    const inCheck = !inMate && game.inCheck();
+    if (inMate || inCheck) {
+      const kingSq = findKing(game.turn());
+      if (kingSq) {
+        const kingRing = inMate ? '7px rgba(217,123,123,0.95)' : '5px rgba(217,123,123,0.7)';
+        rules.push(`chess-board::part(${kingSq}){box-shadow:inset 0 0 0 ${kingRing};}`);
+        const attackerColor = game.turn() === 'w' ? 'b' : 'w';
+        const atkRing = inMate ? '5px rgba(224,168,120,0.9)' : '4px rgba(224,168,120,0.7)';
+        for (const sq of game.attackers(kingSq, attackerColor)) {
+          rules.push(`chess-board::part(${sq}){box-shadow:inset 0 0 0 ${atkRing};}`);
+        }
+      }
     }
+    checkStyle.textContent = rules.join('');
   }
 
   function renderStatus() {
