@@ -170,7 +170,7 @@
   <main class="main">
     <div class="board-wrap">
       <div class="board-stage">
-        <chess-board id="board" position="start" draggable-pieces move-speed="450" trash-speed="350"></chess-board>
+        <chess-board id="board" position="start" draggable-pieces move-speed="550" trash-speed="350"></chess-board>
         <div class="banner" id="banner">
           <div class="banner-card">
             <div class="banner-headline" id="banner-headline"></div>
@@ -403,9 +403,7 @@
       if (legal.length === 0) return;
       const pick = legal[Math.floor(Math.random() * legal.length)];
       await new Promise(r => setTimeout(r, 350));
-      game.move({ from: pick.from, to: pick.to, promotion: pick.promotion });
-      syncBoard();
-      renderStatus();
+      await applyBotMove({ from: pick.from, to: pick.to, promotion: pick.promotion });
       return;
     }
 
@@ -415,9 +413,7 @@
       if (legal.length === 0) return;
       const pick = legal[Math.floor(Math.random() * legal.length)];
       await new Promise(r => setTimeout(r, 350));
-      game.move({ from: pick.from, to: pick.to, promotion: pick.promotion });
-      syncBoard();
-      renderStatus();
+      await applyBotMove({ from: pick.from, to: pick.to, promotion: pick.promotion });
       return;
     }
     // Engine branch — Stockfish search overlaps a minimum delay so even a
@@ -430,10 +426,7 @@
     const from = uci.slice(0, 2);
     const to = uci.slice(2, 4);
     const promotion = uci.length === 5 ? uci[4] : undefined;
-    const move = tryMove({ from, to, promotion });
-    if (move === null) return;
-    syncBoard();
-    renderStatus();
+    await applyBotMove({ from, to, promotion });
   }
 
   function syncBoard(animate = true) {
@@ -445,6 +438,49 @@
   // chess.js v1 throws on illegal moves instead of returning null.
   function tryMove(opts) {
     try { return game.move(opts); } catch { return null; }
+  }
+
+  // Build a chessboard-element PositionObject from chess.js's current board.
+  // `skip`: a square name whose piece is omitted (used for the capture-fade
+  // intermediate state).
+  function positionFromGame({ skip = null } = {}) {
+    const pos = {};
+    const b = game.board();
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = b[r][c];
+        if (!piece) continue;
+        const sq = 'abcdefgh'[c] + (8 - r);
+        if (sq === skip) continue;
+        pos[sq] = piece.color + piece.type.toUpperCase();
+      }
+    }
+    return pos;
+  }
+
+  // Apply a bot move with a real capture animation. chessboard-element
+  // deliberately skips the 'clear' animation for captured pieces (see
+  // _calculateAnimations) — the defender just teleports out. We work around
+  // it by rendering an intermediate position with the captured piece removed
+  // (lib generates a fade-out using trashSpeed), waiting for that to finish,
+  // then applying the actual move so the attacker glides into an empty square.
+  async function applyBotMove({ from, to, promotion }) {
+    const movingPiece = game.get(from);
+    const targetPiece = game.get(to);
+    const isEnPassant = movingPiece && movingPiece.type === 'p'
+      && from[0] !== to[0] && !targetPiece;
+    const captureSquare = isEnPassant ? (to[0] + from[1])
+                        : (targetPiece ? to : null);
+
+    if (captureSquare) {
+      board.setPosition(positionFromGame({ skip: captureSquare }), true);
+      await new Promise(r => setTimeout(r, 400));
+    }
+
+    const move = tryMove({ from, to, promotion });
+    if (move === null) return;
+    syncBoard();
+    renderStatus();
   }
 
   // ── Check / checkmate king highlight ──
