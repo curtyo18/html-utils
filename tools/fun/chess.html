@@ -49,6 +49,13 @@
     max-width: 360px;
     line-height: 1.6;
   }
+  .fatal-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
   .credits {
     font-family: var(--mono);
     font-size: 11px;
@@ -102,8 +109,24 @@
 </div>
 
 <script type="module">
-  import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.6/+esm';
-  import 'https://cdn.jsdelivr.net/npm/chessboard-element@1.2.0/+esm';
+  function fatal(msg) {
+    const main = document.querySelector('.main');
+    if (main) {
+      main.innerHTML = '<div class="fatal-wrap"><div class="fatal">'
+        + msg + '<br><br>Check your connection and reload.</div></div>';
+    }
+    document.getElementById('status').textContent = 'unavailable';
+    console.error('[chess] fatal:', msg);
+  }
+
+  let Chess;
+  try {
+    ({ Chess } = await import('https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.6/+esm'));
+    await import('https://cdn.jsdelivr.net/npm/chessboard-element@1.2.0/+esm');
+  } catch (err) {
+    fatal("Couldn't load chess libraries from CDN.");
+    throw err;
+  }
 
   const board    = document.getElementById('board');
   const statusEl = document.getElementById('status');
@@ -169,6 +192,31 @@
   });
 
   // Boot UCI handshake.
+  // Wait for engine readiness with a timeout. If Stockfish never reports
+  // 'readyok', surface a non-fatal warning — random-move tiers still work.
+  let engineReady = false;
+  const readyTimer = setTimeout(() => {
+    if (!engineReady) {
+      bannerEl.textContent = 'Engine unavailable — only Easiest plays.';
+      bannerEl.classList.add('visible');
+      console.warn('[chess] Stockfish did not report readyok within 10s');
+    }
+  }, 10000);
+
+  function onReadyLine(e) {
+    const line = typeof e.data === 'string' ? e.data : '';
+    if (line === 'readyok') {
+      engineReady = true;
+      clearTimeout(readyTimer);
+      engine.removeEventListener('message', onReadyLine);
+    }
+  }
+  engine.addEventListener('message', onReadyLine);
+  engine.addEventListener('error', () => {
+    clearTimeout(readyTimer);
+    bannerEl.textContent = 'Engine failed to load — only Easiest plays.';
+    bannerEl.classList.add('visible');
+  });
   engine.postMessage('uci');
   engine.postMessage('isready');
 
@@ -196,7 +244,16 @@
       return;
     }
 
-    // Engine branch.
+    // Engine branch — fall back to random if engine never came up.
+    if (!engineReady) {
+      const legal = game.moves({ verbose: true });
+      if (legal.length === 0) return;
+      const pick = legal[Math.floor(Math.random() * legal.length)];
+      game.move({ from: pick.from, to: pick.to, promotion: pick.promotion });
+      syncBoard();
+      renderStatus();
+      return;
+    }
     statusEl.textContent = 'Bot thinking…';
     const uci = await engineBestMove(game.fen(), tier.depth, tier.skill);
     if (!uci || uci === '(none)') return;
