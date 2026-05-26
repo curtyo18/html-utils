@@ -319,11 +319,15 @@
     if (game.isGameOver()) return;
     const tier = currentTier();
 
-    // Random-move branch: pick uniform-random legal move, play instantly.
+    // Random-move branch: pick uniform-random legal move. A short pause makes
+    // the reply feel like a move, not a teleport, and lets the board's
+    // drop-settle finish before we trigger another setPosition — without it,
+    // the lib's animation diff races and frequently skips animating entirely.
     if (Math.random() < tier.randomChance) {
       const legal = game.moves({ verbose: true });
       if (legal.length === 0) return;
       const pick = legal[Math.floor(Math.random() * legal.length)];
+      await new Promise(r => setTimeout(r, 350));
       game.move({ from: pick.from, to: pick.to, promotion: pick.promotion });
       syncBoard();
       renderStatus();
@@ -335,6 +339,7 @@
       const legal = game.moves({ verbose: true });
       if (legal.length === 0) return;
       const pick = legal[Math.floor(Math.random() * legal.length)];
+      await new Promise(r => setTimeout(r, 350));
       game.move({ from: pick.from, to: pick.to, promotion: pick.promotion });
       syncBoard();
       renderStatus();
