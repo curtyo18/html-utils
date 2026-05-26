@@ -12,18 +12,22 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 12px;
     gap: 14px;
     min-height: 0;
   }
+  /* Board sizes to the smaller of: available width, or remaining viewport
+     height minus chrome (header ~50, toolbar ~44, credits ~36, padding ~40
+     ≈ 170; use 180 as a safety margin). dvh handles mobile browser bars. */
   .board-stage {
     position: relative;
-    width: 100%;
-    max-width: 480px;
+    width: min(100%, calc(100dvh - 180px));
+    max-width: 640px;
+    aspect-ratio: 1 / 1;
   }
   chess-board {
     width: 100%;
-    aspect-ratio: 1 / 1;
+    height: 100%;
     --light-color: #e6d3b3;
     --dark-color: #8a6a4c;
     --highlight-color: rgba(224, 168, 120, 0.55);
@@ -216,6 +220,7 @@
 
   const board         = document.getElementById('board');
   const statusEl      = document.getElementById('status');
+  const metaEl        = document.getElementById('meta');
   const bannerEl      = document.getElementById('banner');
   const bannerHeadEl  = document.getElementById('banner-headline');
   const bannerSubEl   = document.getElementById('banner-sub');
@@ -297,6 +302,48 @@
   });
 
   loadDifficulty();
+
+  // ── Elo rating ──
+  // Each tier has a rough rating; player Elo updates standardly after each
+  // decisive result (K=32). Bot rating estimates account for the random-move
+  // injection in the easier tiers, not just raw engine strength.
+  const BOT_RATINGS = {
+    'easiest':   300,
+    'very-easy': 500,
+    'easy':      900,
+    'medium':    1500,
+    'hard':      2000,
+    'expert':    2500,
+  };
+  const K_FACTOR     = 32;
+  const START_RATING = 500;
+  const RATING_KEY   = 'html-utils:chess:rating';
+
+  let playerRating = START_RATING;
+  try {
+    const saved = parseInt(localStorage.getItem(RATING_KEY), 10);
+    if (Number.isFinite(saved)) playerRating = saved;
+  } catch {}
+
+  function renderRating() {
+    metaEl.textContent = 'Rating ' + Math.round(playerRating);
+  }
+
+  // score: 1 win, 0.5 draw, 0 loss (from player's perspective).
+  // Returns the integer delta applied so the caller can show "+12" etc.
+  function applyResult(score) {
+    const botRating = BOT_RATINGS[difficultyEl.value] ?? 800;
+    const expected  = 1 / (1 + Math.pow(10, (botRating - playerRating) / 400));
+    const rawDelta  = K_FACTOR * (score - expected);
+    const delta     = Math.round(rawDelta);
+    playerRating    = Math.round(playerRating + rawDelta);
+    try { localStorage.setItem(RATING_KEY, String(playerRating)); } catch {}
+    renderRating();
+    return delta;
+  }
+
+  let gameResolved = false;
+  renderRating();
 
   // ── Stockfish Worker (loaded via same-origin blob → importScripts(CDN)) ──
   // Cross-origin `new Worker('https://...')` is blocked by browsers; the blob
@@ -414,21 +461,28 @@
   function renderStatus() {
     if (game.isGameOver()) {
       // Player is always White. Loser-of-checkmate is whose turn it now is.
-      let headline, sub;
+      let headline, sub, score = null;
       if (game.isCheckmate()) {
         const playerLost = game.turn() === 'w';
         headline = playerLost ? 'You lose' : 'You win!';
         sub = 'checkmate';
+        score = playerLost ? 0 : 1;
       } else if (game.isStalemate()) {
-        headline = 'Draw'; sub = 'stalemate';
+        headline = 'Draw'; sub = 'stalemate'; score = 0.5;
       } else if (game.isThreefoldRepetition()) {
-        headline = 'Draw'; sub = 'threefold repetition';
+        headline = 'Draw'; sub = 'threefold repetition'; score = 0.5;
       } else if (game.isInsufficientMaterial()) {
-        headline = 'Draw'; sub = 'insufficient material';
+        headline = 'Draw'; sub = 'insufficient material'; score = 0.5;
       } else if (game.isDraw()) {
-        headline = 'Draw'; sub = '50-move rule';
+        headline = 'Draw'; sub = '50-move rule'; score = 0.5;
       } else {
         headline = 'Game over'; sub = '';
+      }
+      if (score !== null && !gameResolved) {
+        gameResolved = true;
+        const delta = applyResult(score);
+        const sign = delta > 0 ? '+' : '';
+        sub += ` · ${sign}${delta} rating`;
       }
       bannerHeadEl.textContent = headline;
       bannerSubEl.textContent = sub;
@@ -475,6 +529,7 @@
     engine.postMessage('position startpos');
     game.reset();
     pendingResolve = null;
+    gameResolved = false;
     syncBoard();
     renderStatus();
   }
