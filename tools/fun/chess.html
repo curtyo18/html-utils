@@ -432,10 +432,16 @@
     await applyBotMove({ from, to, promotion });
   }
 
+  const FEN_KEY = 'html-utils:chess:fen';
+  function saveFen() {
+    try { localStorage.setItem(FEN_KEY, game.fen()); } catch {}
+  }
+
   function syncBoard(animate = true) {
     // setPosition() handles FEN strings; the position *property* setter expects
     // a PositionObject (only the HTML *attribute* converter parses FEN/'start').
     board.setPosition(game.fen(), animate);
+    saveFen();
   }
 
   // chess.js v1 throws on illegal moves instead of returning null.
@@ -617,18 +623,33 @@
     });
   });
 
-  // Tap-to-select then tap-to-move. Listens for `click` and locates the
-  // square via the lib's `part="square <name> <color>"` attribute on each
-  // square element. Works for empty squares too (drag-start/drop don't fire
-  // on those, so click is the only signal).
-  board.addEventListener('click', (e) => {
-    const sqEl = e.composedPath().find(n =>
-      n && n.getAttribute && /(^|\s)square(\s|$)/.test(n.getAttribute('part') || ''));
-    if (!sqEl) return;
-    const parts = sqEl.getAttribute('part').split(/\s+/);
-    const square = parts[1]; // "square e4 white" -> "e4"
-    if (!square) return;
-    handleTap(square);
+  // Tap-to-select then tap-to-move. Uses pointer events instead of `click`
+  // because the lib calls preventDefault() on touchstart for any square with
+  // a piece — on iOS Safari that suppresses the synthesized click, so click
+  // never fires when tapping a piece on touch devices. Pointer events bypass
+  // that suppression. We detect a tap as "pointerup on same square as
+  // pointerdown" so real drags (which release on a different square) don't
+  // double-trigger with the drop handler.
+  function squareFromEvent(e) {
+    for (const n of e.composedPath()) {
+      if (n && n.getAttribute) {
+        const part = n.getAttribute('part') || '';
+        if (/(^|\s)square(\s|$)/.test(part)) {
+          return part.split(/\s+/)[1] || null;
+        }
+      }
+    }
+    return null;
+  }
+  let _tapDownSquare = null;
+  board.addEventListener('pointerdown', (e) => {
+    _tapDownSquare = squareFromEvent(e);
+  });
+  board.addEventListener('pointerup', (e) => {
+    const up = squareFromEvent(e);
+    const down = _tapDownSquare;
+    _tapDownSquare = null;
+    if (up && down && up === down) handleTap(up);
   });
 
   function handleTap(square) {
@@ -688,10 +709,36 @@
   btnNew.addEventListener('click', newGame);
   btnBannerNew.addEventListener('click', newGame);
 
+  // ── Restore a prior game from localStorage (if any) ──
+  // Saved every move in syncBoard. If the saved game already ended, mark it
+  // resolved so renderStatus doesn't double-apply the rating delta. If it's
+  // the bot's turn when we restore (user closed mid-bot-think), kick off
+  // the bot once the engine reports readyok.
+  try {
+    const savedFen = localStorage.getItem(FEN_KEY);
+    if (savedFen) {
+      game.load(savedFen);
+      if (game.isGameOver()) gameResolved = true;
+    }
+  } catch {
+    try { localStorage.removeItem(FEN_KEY); } catch {}
+  }
+
   syncBoard();
   renderStatus();
 
-  // Stash for next task.
+  if (!game.isGameOver() && game.turn() === 'b') {
+    // Wait briefly for engine to come up, then make the bot's move.
+    (async () => {
+      const deadline = Date.now() + 8000;
+      while (!engineReady && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+      botMove();
+    })();
+  }
+
+  // Stash for debugging.
   window.__chess = { game, board, syncBoard, renderStatus };
 </script>
 </body>
