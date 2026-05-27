@@ -313,8 +313,11 @@
     if (Number.isFinite(saved)) playerRating = saved;
   } catch {}
 
+  let _botThinking = 0;
   function renderRating() {
-    metaEl.textContent = 'Rating ' + Math.round(playerRating);
+    let txt = 'Rating ' + Math.round(playerRating);
+    if (_botThinking > 0) txt += ' · thinking…';
+    metaEl.textContent = txt;
   }
 
   // score: 1 win, 0.5 draw, 0 loss (from player's perspective).
@@ -395,6 +398,15 @@
 
   async function botMove() {
     if (game.isGameOver()) return;
+    _botThinking++; renderRating();
+    try {
+      await botMoveInner();
+    } finally {
+      _botThinking--; renderRating();
+    }
+  }
+
+  async function botMoveInner() {
     const tier = currentTier();
 
     // Random-move branch: pick uniform-random legal move. A short pause makes
@@ -721,7 +733,10 @@
       if (game.isGameOver()) gameResolved = true;
     }
   } catch {
+    // Bad saved FEN — discard and start fresh so we don't leave chess.js
+    // in a half-initialised state.
     try { localStorage.removeItem(FEN_KEY); } catch {}
+    game.reset();
   }
 
   syncBoard();
