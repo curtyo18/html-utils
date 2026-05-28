@@ -540,36 +540,90 @@
   // conflict with the background-image hint rendering on adjacent squares.
   const checkStyle = document.head.appendChild(document.createElement('style'));
 
+  const inBounds = (r, c) => r >= 0 && r < 8 && c >= 0 && c < 8;
+  const rcToSq = (r, c) => 'abcdefgh'[c] + (8 - r);
+  const sqToRC = (sq) => [8 - parseInt(sq[1], 10), sq.charCodeAt(0) - 97];
+
   function findKing(color) {
     const board2d = game.board();
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         const sq = board2d[r][c];
         if (sq && sq.type === 'k' && sq.color === color) {
-          return 'abcdefgh'[c] + (8 - r);
+          return rcToSq(r, c);
         }
       }
     }
     return null;
   }
 
-  function paintKing() {
-    const rules = [];
-    const inMate = game.isCheckmate();
-    const inCheck = !inMate && game.inCheck();
-    if (inMate || inCheck) {
-      const kingSq = findKing(game.turn());
-      if (kingSq) {
-        const kingRing = inMate ? '7px rgba(217,123,123,0.95)' : '5px rgba(217,123,123,0.7)';
-        rules.push(`chess-board::part(${kingSq}){box-shadow:inset 0 0 0 ${kingRing};}`);
-        const attackerColor = game.turn() === 'w' ? 'b' : 'w';
-        const atkRing = inMate ? '5px rgba(224,168,120,0.9)' : '4px rgba(224,168,120,0.7)';
-        for (const sq of game.attackers(kingSq, attackerColor)) {
-          rules.push(`chess-board::part(${sq}){box-shadow:inset 0 0 0 ${atkRing};}`);
+  // chess.js@1.0.0-beta.6 has no attackers() method, so we compute which
+  // enemy pieces attack a square geometrically: knight/king offsets, pawn
+  // diagonals, and ray-casts for bishop/rook/queen sliders.
+  function attackersOf(targetSq, color) {
+    const b = game.board();
+    const [tr, tc] = sqToRC(targetSq);
+    const at = (r, c) => (inBounds(r, c) ? b[r][c] : null);
+    const isEnemy = (p, type) => p && p.color === color && p.type === type;
+    const out = [];
+
+    const knightOff = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+    for (const [dr, dc] of knightOff) {
+      if (isEnemy(at(tr+dr, tc+dc), 'n')) out.push(rcToSq(tr+dr, tc+dc));
+    }
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      if (isEnemy(at(tr+dr, tc+dc), 'k')) out.push(rcToSq(tr+dr, tc+dc));
+    }
+    // A pawn of `color` attacking down-board (toward target). White pawns sit
+    // one rank below the target square (higher row index); black pawns above.
+    const pr = color === 'w' ? tr + 1 : tr - 1;
+    for (const dc of [-1, 1]) {
+      if (isEnemy(at(pr, tc+dc), 'p')) out.push(rcToSq(pr, tc+dc));
+    }
+    const scan = (dirs, types) => {
+      for (const [dr, dc] of dirs) {
+        let r = tr + dr, c = tc + dc;
+        while (inBounds(r, c)) {
+          const p = b[r][c];
+          if (p) {
+            if (p.color === color && types.includes(p.type)) out.push(rcToSq(r, c));
+            break;
+          }
+          r += dr; c += dc;
         }
       }
+    };
+    scan([[-1,-1],[-1,1],[1,-1],[1,1]], ['b','q']);
+    scan([[-1,0],[1,0],[0,-1],[0,1]], ['r','q']);
+    return out;
+  }
+
+  function paintKing() {
+    try {
+      const rules = [];
+      const inMate = game.isCheckmate();
+      const inCheck = !inMate && game.inCheck();
+      if (inMate || inCheck) {
+        const kingSq = findKing(game.turn());
+        if (kingSq) {
+          const kingRing = inMate ? '7px rgba(217,123,123,0.95)' : '5px rgba(217,123,123,0.7)';
+          rules.push(`chess-board::part(${kingSq}){box-shadow:inset 0 0 0 ${kingRing};}`);
+          const attackerColor = game.turn() === 'w' ? 'b' : 'w';
+          const atkRing = inMate ? '5px rgba(224,168,120,0.9)' : '4px rgba(224,168,120,0.7)';
+          for (const sq of attackersOf(kingSq, attackerColor)) {
+            rules.push(`chess-board::part(${sq}){box-shadow:inset 0 0 0 ${atkRing};}`);
+          }
+        }
+      }
+      checkStyle.textContent = rules.join('');
+    } catch (err) {
+      // King highlight is purely cosmetic — never let it abort the turn flow
+      // (a throw here previously skipped botMove() and let the player move the
+      // bot's pieces).
+      console.warn('[chess] paintKing failed:', err);
+      checkStyle.textContent = '';
     }
-    checkStyle.textContent = rules.join('');
   }
 
   function renderStatus() {
