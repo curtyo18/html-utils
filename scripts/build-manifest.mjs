@@ -3,6 +3,13 @@ import { existsSync } from 'node:fs';
 import { join, posix, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const GROUP_ORDER = ['text', 'inspect', 'generate', 'numbers', 'web', 'fun'];
+
+function groupSortKey(name) {
+  const i = GROUP_ORDER.indexOf(name);
+  return i === -1 ? GROUP_ORDER.length : i;
+}
+
 function isIgnored(name) {
   return name.startsWith('_') || name.startsWith('.');
 }
@@ -72,7 +79,12 @@ export async function buildManifest(repoRoot) {
   if (result.kind === 'tool-folder') {
     return { tools: [{ name: result.name, href: result.href }] };
   }
-  return { tools: result.children };
+  const tools = result.children.slice().sort((a, b) => {
+    const ak = groupSortKey(a.group ?? a.name ?? '');
+    const bk = groupSortKey(b.group ?? b.name ?? '');
+    return ak !== bk ? ak - bk : (a.group ?? a.name ?? '').localeCompare(b.group ?? b.name ?? '');
+  });
+  return { tools };
 }
 
 async function main() {
