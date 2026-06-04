@@ -317,32 +317,62 @@
     };
   }
 
+  // Ordered, parse-verified JSON repair strategies. When strict JSON.parse fails,
+  // each strategy's fix(t) returns a candidate string (or null to skip); the first
+  // whose output re-parses wins. Failed guesses fall through to other detectors —
+  // every repair is verified by a real parse, so there are no false positives.
+  const JSON_REPAIRS = [
+    {
+      label: 'JSON (""-escaped)',
+      head: 'JSON (un-doubled quotes)',
+      score: 0.9,
+      // CSV-style doubled quotes: {""key"":""value""}.
+      fix: t => /""/.test(t) ? t.replace(/""/g, '"') : null,
+    },
+    {
+      label: 'JSON (unescaped)',
+      head: 'JSON (un-escaped)',
+      score: 0.9,
+      // Backslash-escaped JSON copied out of a string/log: {\"key\":...}.
+      // Parsing the whole text AS a JSON string strips one escape layer.
+      fix: t => {
+        if (!/\\"/.test(t)) return null;
+        try { return JSON.parse('"' + t + '"'); } catch { return null; }
+      },
+    },
+    {
+      label: 'JSON (repaired)',
+      head: 'JSON (repaired)',
+      score: 0.85,
+      // Generic cleanup: strip comments + trailing commas, close unbalanced braces.
+      fix: t => stripJsonNoise(t),
+    },
+  ];
+
   function detectJson(input) {
     const t = input.trim();
     if (!t) return null;
     if (!/^[\[{"]|^(true|false|null|-?\d)/.test(t)) return null;
-    let parsed;
-    let doubledQuotes = false;
+    let parsed, label = 'JSON', head = 'JSON', score = 0.95;
     try {
       parsed = JSON.parse(t);
     } catch {
-      // Fallback: CSV-style doubled-quote escaping, e.g. {""key"":""value""}.
-      if (/""/.test(t)) {
-        try {
-          parsed = JSON.parse(t.replace(/""/g, '"'));
-          doubledQuotes = true;
-        } catch { return null; }
-      } else {
-        return null;
+      let hit = null;
+      for (const r of JSON_REPAIRS) {
+        let fixed;
+        try { fixed = r.fix(t); } catch { fixed = null; }
+        if (fixed == null) continue;
+        try { parsed = JSON.parse(fixed); } catch { continue; }
+        label = r.label; head = r.head; score = r.score; hit = r;
+        break;
       }
+      if (!hit) return null;
     }
-    const label = doubledQuotes ? 'JSON (""-escaped)' : 'JSON';
-    const cand = { score: doubledQuotes ? 0.9 : 0.95, label };
+    const cand = { score, label };
     cand.render = async (opts = {}) => {
       const findInner = opts.findInner !== false;
       const pretty = JSON.stringify(parsed, null, 2);
       lastCopyText = pretty;
-      const head = doubledQuotes ? 'JSON (un-doubled quotes)' : 'JSON';
       const main = `<div class="dec-section">
         <div class="dec-section-head">${head}</div>
         <div class="dec-section-body">${escapeHtml(pretty)}</div>
@@ -373,6 +403,70 @@
       else if (c === '}') closes++;
     }
     return opens - closes;
+  }
+
+  // Remove // line comments and /* */ block comments, leaving string bodies untouched.
+  function stripComments(t) {
+    let out = '';
+    let inStr = null, esc = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (inStr) {
+        out += c;
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === inStr) inStr = null;
+        continue;
+      }
+      if (c === '"' || c === "'") { inStr = c; out += c; continue; }
+      if (c === '/' && t[i + 1] === '/') {
+        i += 2;
+        while (i < t.length && t[i] !== '\n') i++;
+        continue;
+      }
+      if (c === '/' && t[i + 1] === '*') {
+        i += 2;
+        while (i < t.length && !(t[i] === '*' && t[i + 1] === '/')) i++;
+        i += 1;
+        continue;
+      }
+      out += c;
+    }
+    return out;
+  }
+
+  // Drop a comma followed (ignoring whitespace) by } or ]. String-aware.
+  function stripTrailingCommas(t) {
+    let out = '';
+    let inStr = null, esc = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (inStr) {
+        out += c;
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === inStr) inStr = null;
+        continue;
+      }
+      if (c === '"' || c === "'") { inStr = c; out += c; continue; }
+      if (c === ',') {
+        let j = i + 1;
+        while (j < t.length && /\s/.test(t[j])) j++;
+        if (t[j] === '}' || t[j] === ']') continue;
+      }
+      out += c;
+    }
+    return out;
+  }
+
+  // Last-resort cleanup: comments out, trailing commas out, unbalanced braces
+  // closed. Returns null if nothing changed (chain must not claim a no-op repair).
+  function stripJsonNoise(t) {
+    let out = stripComments(t);
+    out = stripTrailingCommas(out);
+    const diff = balanceBraces(out);
+    if (diff > 0) out += '}'.repeat(diff);
+    return out === t ? null : out;
   }
 
   function detectJsObjectLiteral(input) {
