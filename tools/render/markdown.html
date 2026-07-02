@@ -135,6 +135,8 @@
     <div class="spacer"></div>
     <button class="btn ghost" id="btn-clear">clear</button>
     <button class="btn ghost" id="btn-copy">copy html</button>
+    <button class="btn ghost" id="btn-copy-img">copy img</button>
+    <button class="btn ghost" id="btn-save-img">png</button>
     <button class="btn primary" id="btn-share">share link</button>
   </div>
 
@@ -174,9 +176,11 @@
   const emptyEl   = document.getElementById('empty');
   const statusEl  = document.getElementById('status');
   const statInput = document.getElementById('stat-input');
-  const btnClear  = document.getElementById('btn-clear');
-  const btnCopy   = document.getElementById('btn-copy');
-  const btnShare  = document.getElementById('btn-share');
+  const btnClear   = document.getElementById('btn-clear');
+  const btnCopy    = document.getElementById('btn-copy');
+  const btnCopyImg = document.getElementById('btn-copy-img');
+  const btnSaveImg = document.getElementById('btn-save-img');
+  const btnShare   = document.getElementById('btn-share');
   const toast     = document.getElementById('toast');
   const layoutEl  = document.querySelector('.layout');
   const gutterEl  = document.getElementById('gutter');
@@ -328,6 +332,62 @@
       showToast(`link copied · ${url.length} chars`);
     } catch { showToast('share failed'); }
   });
+
+  // ---- image export: html2canvas lazy-loaded + pinned, only on first use ----
+  let _h2c;
+  function getHtml2canvas() {
+    if (!_h2c) _h2c = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+      s.onload = () => resolve(window.html2canvas);
+      s.onerror = () => reject(new Error('failed to load html2canvas'));
+      document.head.appendChild(s);
+    });
+    return _h2c;
+  }
+  // Capture the rendered pane at 2× for a crisp, retina-quality PNG. #output is
+  // the content-sized element (not the scroll container), so the whole document
+  // is captured, not just the visible slice.
+  async function captureCanvas() {
+    const html2canvas = await getHtml2canvas();
+    const bg = getComputedStyle(document.querySelector('.rendered')).backgroundColor;
+    return html2canvas(outputEl, { backgroundColor: bg, scale: 2, useCORS: true });
+  }
+  async function withCapture(btn, fn) {
+    if (!lastHtml) { showToast('nothing to render'); return; }
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      await fn(await captureCanvas());
+    } catch (e) {
+      const blocked = e && e.name === 'NotAllowedError';
+      showToast(blocked ? 'clipboard blocked by browser' : `image failed: ${e && e.message ? e.message : e}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+  function toPngBlob(canvas) {
+    // Reject (not silently null) when the canvas exceeds the browser's max area.
+    return new Promise((resolve, reject) => canvas.toBlob(
+      b => b ? resolve(b) : reject(new Error('image too large to export')), 'image/png'));
+  }
+  btnCopyImg.addEventListener('click', () => withCapture(btnCopyImg, async canvas => {
+    // Promise-valued ClipboardItem so the write begins within the user gesture
+    // (Safari/WebKit require this).
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPngBlob(canvas) })]);
+    showToast('image copied to clipboard');
+  }));
+  btnSaveImg.addEventListener('click', () => withCapture(btnSaveImg, async canvas => {
+    const url = URL.createObjectURL(await toPngBlob(canvas));
+    const a = document.createElement('a');
+    a.download = 'markdown.png';
+    a.href = url;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('png saved');
+  }));
 
   // ---- boot: shared link takes priority over saved draft ----
   async function boot() {
