@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, posix, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const GROUP_ORDER = ['text', 'inspect', 'generate', 'numbers', 'web', 'fun'];
+const GROUP_ORDER = ['text', 'inspect', 'render', 'generate', 'numbers', 'web', 'fun'];
 
 function groupSortKey(name) {
   const i = GROUP_ORDER.indexOf(name);

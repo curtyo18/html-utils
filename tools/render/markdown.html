@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>markdown · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+<style>
+  /* layout: wide viewports get a 2-column split (source | gutter | rendered);
+     narrow viewports stack vertically. --cols / --rows carry the drag ratio. */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: var(--cols, 1fr 6px 1fr);
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  @media (max-width: 760px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: var(--rows, 1fr 6px 1fr);
+    }
+  }
+  .gutter {
+    background: var(--bg-3);
+    cursor: col-resize;
+    transition: background 120ms;
+  }
+  .gutter:hover, .gutter.dragging { background: var(--accent-dim); }
+  @media (max-width: 760px) { .gutter { cursor: row-resize; } }
+
+  .rendered {
+    overflow: auto;
+    background: var(--bg);
+    padding: 20px 26px;
+    color: var(--text);
+    line-height: 1.65;
+  }
+  .rendered-empty {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 0;
+  }
+
+  /* ---- rendered markdown typography ---- */
+  .md-body > :first-child { margin-top: 0; }
+  .md-body > :last-child { margin-bottom: 0; }
+  .md-body h1, .md-body h2, .md-body h3,
+  .md-body h4, .md-body h5, .md-body h6 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 1.4em 0 0.6em;
+    color: #eceef3;
+  }
+  .md-body h1 { font-size: 1.7em; }
+  .md-body h2 { font-size: 1.4em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }
+  .md-body h3 { font-size: 1.2em; }
+  .md-body h4 { font-size: 1.05em; }
+  .md-body h5, .md-body h6 { font-size: 0.95em; color: var(--text-dim); }
+  .md-body p { margin: 0.8em 0; }
+  .md-body a { color: var(--accent); text-decoration: none; }
+  .md-body a:hover { text-decoration: underline; }
+  .md-body strong { color: #eceef3; font-weight: 600; }
+  .md-body ul, .md-body ol { margin: 0.8em 0; padding-left: 1.6em; }
+  .md-body li { margin: 0.25em 0; }
+  .md-body li > ul, .md-body li > ol { margin: 0.25em 0; }
+  .md-body blockquote {
+    margin: 0.9em 0;
+    padding: 0.2em 1em;
+    border-left: 3px solid var(--border-strong);
+    color: var(--text-dim);
+  }
+  .md-body code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0.1em 0.4em;
+  }
+  .md-body pre {
+    margin: 0.9em 0;
+    padding: 12px 14px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow-x: auto;
+  }
+  .md-body pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.85em;
+    line-height: 1.5;
+  }
+  .md-body hr { border: none; border-top: 1px solid var(--border); margin: 1.6em 0; }
+  .md-body table {
+    border-collapse: collapse;
+    margin: 0.9em 0;
+    font-size: 0.92em;
+  }
+  .md-body th, .md-body td {
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    text-align: left;
+  }
+  .md-body th { background: var(--bg-1); color: var(--text-dim); font-weight: 600; }
+  .md-body tr:nth-child(even) td { background: var(--bg-1); }
+  .md-body img { max-width: 100%; border-radius: var(--r); }
+  .md-body input[type="checkbox"] { margin-right: 6px; }
+
+  .toolbar .status { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .toolbar .status .warn { color: var(--del); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>render</span><span class="sep">/</span>
+      <span class="current">markdown</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste markdown · rendered live</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="status" id="status">no input</span>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn ghost" id="btn-copy">copy html</button>
+    <button class="btn primary" id="btn-share">share link</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">markdown</span>
+          <span class="pane-stat" id="stat-input">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false" placeholder="# Hello&#10;&#10;Paste or type **markdown** here…"></textarea>
+        </div>
+      </section>
+
+      <div class="gutter" id="gutter"></div>
+
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">rendered</span>
+        </div>
+        <div class="rendered">
+          <div class="md-body" id="output"></div>
+          <div class="rendered-empty" id="empty">Rendered markdown appears here.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">copied</div>
+
+<script>
+(() => {
+  const inputEl   = document.getElementById('input');
+  const outputEl  = document.getElementById('output');
+  const emptyEl   = document.getElementById('empty');
+  const statusEl  = document.getElementById('status');
+  const statInput = document.getElementById('stat-input');
+  const btnClear  = document.getElementById('btn-clear');
+  const btnCopy   = document.getElementById('btn-copy');
+  const btnShare  = document.getElementById('btn-share');
+  const toast     = document.getElementById('toast');
+  const layoutEl  = document.querySelector('.layout');
+  const gutterEl  = document.getElementById('gutter');
+
+  const STORAGE_KEY = 'html-utils:markdown';
+  let lastHtml = '';
+
+  // ---- draggable split (percent of the left/top pane) ----
+  const SPLIT_MIN = 15, SPLIT_MAX = 85;
+  let split = 50;
+  function setSplit(p) {
+    split = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(p)));
+    layoutEl.style.setProperty('--cols', `${split}fr 6px ${100 - split}fr`);
+    layoutEl.style.setProperty('--rows', `${split}fr 6px ${100 - split}fr`);
+  }
+  gutterEl.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    gutterEl.setPointerCapture(e.pointerId);
+    gutterEl.classList.add('dragging');
+    const vert = window.matchMedia('(max-width: 760px)').matches;
+    const move = ev => {
+      const r = layoutEl.getBoundingClientRect();
+      setSplit(vert ? (ev.clientY - r.top) / r.height * 100
+                    : (ev.clientX - r.left) / r.width * 100);
+    };
+    const up = () => {
+      gutterEl.classList.remove('dragging');
+      gutterEl.removeEventListener('pointermove', move);
+      gutterEl.removeEventListener('pointerup', up);
+      persist();
+    };
+    gutterEl.addEventListener('pointermove', move);
+    gutterEl.addEventListener('pointerup', up);
+  });
+
+  marked.setOptions({ gfm: true, breaks: false });
+
+  // ---- share-link packing ----
+  // Payload is base64url with a 1-char codec flag: 'b' brotli, 'c' deflate-raw,
+  // 's' stored. pack() tries every available codec and keeps the smallest, so a
+  // tiny input never expands and Brotli (best for HTML/markdown, thanks to its
+  // built-in web dictionary) wins when it helps. Brotli is lazy-loaded from a
+  // CDN only when actually sharing or opening a Brotli link — normal page loads
+  // pull nothing extra. Old 'c'/'s' links keep working forever.
+  let _brotli;
+  function getBrotli() {
+    if (!_brotli) _brotli = import('https://esm.sh/brotli-wasm@3.0.1').then(m => m.default);
+    return _brotli;
+  }
+  function toB64url(bytes) {
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function fromB64url(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const bin = atob(s);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  async function pipe(stream, bytes) {
+    const w = stream.writable.getWriter();
+    w.write(bytes);
+    w.close();
+    return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+  }
+  async function pack(str) {
+    const raw = new TextEncoder().encode(str);
+    const candidates = [['s', raw]];
+    try { candidates.push(['c', await pipe(new CompressionStream('deflate-raw'), raw)]); } catch {}
+    try { const br = await getBrotli(); candidates.push(['b', br.compress(raw, { quality: 11 })]); } catch {}
+    let best = candidates[0];
+    for (const c of candidates) if (c[1].length < best[1].length) best = c;
+    return best[0] + toB64url(best[1]);
+  }
+  async function unpack(s) {
+    const bytes = fromB64url(s.slice(1));
+    if (s[0] === 's') return new TextDecoder().decode(bytes);
+    if (s[0] === 'b') return new TextDecoder().decode((await getBrotli()).decompress(bytes));
+    return new TextDecoder().decode(await pipe(new DecompressionStream('deflate-raw'), bytes));
+  }
+
+  function render() {
+    const src = inputEl.value;
+    statInput.textContent = `${src.length} chars`;
+    persist();
+
+    if (!src.trim()) {
+      outputEl.innerHTML = '';
+      emptyEl.style.display = '';
+      statusEl.textContent = 'no input';
+      lastHtml = '';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    const dirty = marked.parse(src);
+    lastHtml = DOMPurify.sanitize(dirty);
+    outputEl.innerHTML = lastHtml;
+    const removed = DOMPurify.removed.length;
+    statusEl.innerHTML = removed
+      ? `rendered · <span class="warn">${removed} unsafe node${removed === 1 ? '' : 's'} stripped</span>`
+      : 'rendered';
+  }
+
+  // ---- persistence ----
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ input: inputEl.value, split }));
+    } catch {}
+  }
+
+  // ---- update loop ----
+  let _t;
+  inputEl.addEventListener('input', () => {
+    clearTimeout(_t);
+    _t = setTimeout(render, 80);
+  });
+
+  btnClear.addEventListener('click', () => {
+    inputEl.value = '';
+    render();
+    inputEl.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  btnCopy.addEventListener('click', async () => {
+    if (!lastHtml) { showToast('nothing to copy'); return; }
+    try {
+      await navigator.clipboard.writeText(lastHtml);
+      showToast(`copied · ${lastHtml.length} chars`);
+    } catch { showToast('copy failed'); }
+  });
+
+  btnShare.addEventListener('click', async () => {
+    if (!inputEl.value) { showToast('nothing to share'); return; }
+    try {
+      const packed = await pack(inputEl.value);
+      const url = `${location.origin}${location.pathname}?d=${packed}`
+        + (split !== 50 ? `&s=${split}` : '');
+      await navigator.clipboard.writeText(url);
+      showToast(`link copied · ${url.length} chars`);
+    } catch { showToast('share failed'); }
+  });
+
+  // ---- boot: shared link takes priority over saved draft ----
+  async function boot() {
+    const params = new URLSearchParams(location.search);
+    const sParam = parseInt(params.get('s'), 10);
+    const packed = params.get('d');
+    if (packed) {
+      if (Number.isFinite(sParam)) setSplit(sParam);
+      try {
+        inputEl.value = await unpack(packed);
+        render();
+        return;
+      } catch { showToast('bad share link'); }
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (typeof saved.input === 'string') inputEl.value = saved.input;
+      if (Number.isFinite(saved.split)) setSplit(saved.split);
+    } catch {}
+    render();
+  }
+  boot();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>html · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  /* layout: wide viewports get a 2-column split (source | rendered);
+     narrow viewports stack vertically. */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: var(--cols, 1fr 6px 1fr);
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  @media (max-width: 760px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: var(--rows, 1fr 6px 1fr);
+    }
+  }
+  .gutter {
+    background: var(--bg-3);
+    cursor: col-resize;
+    transition: background 120ms;
+  }
+  .gutter:hover, .gutter.dragging { background: var(--accent-dim); }
+  @media (max-width: 760px) { .gutter { cursor: row-resize; } }
+
+  .preview-pane { position: relative; }
+  /* white canvas so arbitrary pages render as their author intended,
+     rather than inheriting the app's dark chrome. */
+  #frame {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: #fff;
+  }
+
+  .toolbar .status { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .toolbar .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .toolbar .toggle input { accent-color: var(--accent); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>render</span><span class="sep">/</span>
+      <span class="current">html</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste html · sandboxed preview</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="status" id="status">no input</span>
+    <div class="spacer"></div>
+    <label class="toggle"><input type="checkbox" id="scripts">run scripts</label>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-share">share link</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">html</span>
+          <span class="pane-stat" id="stat-input">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false" placeholder="<h1>Hello</h1>&#10;<p>Paste or type raw <b>HTML</b> here…</p>"></textarea>
+        </div>
+      </section>
+
+      <div class="gutter" id="gutter"></div>
+
+      <section class="pane preview-pane">
+        <div class="pane-head">
+          <span class="pane-title">preview</span>
+        </div>
+        <div class="pane-body">
+          <iframe id="frame" title="preview" sandbox=""></iframe>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">copied</div>
+
+<script>
+(() => {
+  const inputEl   = document.getElementById('input');
+  const frameEl   = document.getElementById('frame');
+  const scriptsEl = document.getElementById('scripts');
+  const statusEl  = document.getElementById('status');
+  const statInput = document.getElementById('stat-input');
+  const btnClear  = document.getElementById('btn-clear');
+  const btnShare  = document.getElementById('btn-share');
+  const toast     = document.getElementById('toast');
+  const layoutEl  = document.querySelector('.layout');
+  const gutterEl  = document.getElementById('gutter');
+
+  const STORAGE_KEY = 'html-utils:html';
+
+  // ---- draggable split (percent of the left/top pane) ----
+  // Pointer capture keeps move events on the gutter even as the cursor passes
+  // over the sandboxed iframe, which would otherwise swallow them.
+  const SPLIT_MIN = 15, SPLIT_MAX = 85;
+  let split = 50;
+  function setSplit(p) {
+    split = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(p)));
+    layoutEl.style.setProperty('--cols', `${split}fr 6px ${100 - split}fr`);
+    layoutEl.style.setProperty('--rows', `${split}fr 6px ${100 - split}fr`);
+  }
+  gutterEl.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    gutterEl.setPointerCapture(e.pointerId);
+    gutterEl.classList.add('dragging');
+    const vert = window.matchMedia('(max-width: 760px)').matches;
+    const move = ev => {
+      const r = layoutEl.getBoundingClientRect();
+      setSplit(vert ? (ev.clientY - r.top) / r.height * 100
+                    : (ev.clientX - r.left) / r.width * 100);
+    };
+    const up = () => {
+      gutterEl.classList.remove('dragging');
+      gutterEl.removeEventListener('pointermove', move);
+      gutterEl.removeEventListener('pointerup', up);
+      persist();
+    };
+    gutterEl.addEventListener('pointermove', move);
+    gutterEl.addEventListener('pointerup', up);
+  });
+
+  // ---- share-link packing ----
+  // Payload is base64url with a 1-char codec flag: 'b' brotli, 'c' deflate-raw,
+  // 's' stored. pack() tries every available codec and keeps the smallest, so a
+  // tiny input never expands and Brotli (best for HTML/markdown, thanks to its
+  // built-in web dictionary) wins when it helps. Brotli is lazy-loaded from a
+  // CDN only when actually sharing or opening a Brotli link — normal page loads
+  // pull nothing extra. Old 'c'/'s' links keep working forever.
+  let _brotli;
+  function getBrotli() {
+    if (!_brotli) _brotli = import('https://esm.sh/brotli-wasm@3.0.1').then(m => m.default);
+    return _brotli;
+  }
+  function toB64url(bytes) {
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function fromB64url(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const bin = atob(s);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  async function pipe(stream, bytes) {
+    const w = stream.writable.getWriter();
+    w.write(bytes);
+    w.close();
+    return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+  }
+  async function pack(str) {
+    const raw = new TextEncoder().encode(str);
+    const candidates = [['s', raw]];
+    try { candidates.push(['c', await pipe(new CompressionStream('deflate-raw'), raw)]); } catch {}
+    try { const br = await getBrotli(); candidates.push(['b', br.compress(raw, { quality: 11 })]); } catch {}
+    let best = candidates[0];
+    for (const c of candidates) if (c[1].length < best[1].length) best = c;
+    return best[0] + toB64url(best[1]);
+  }
+  async function unpack(s) {
+    const bytes = fromB64url(s.slice(1));
+    if (s[0] === 's') return new TextDecoder().decode(bytes);
+    if (s[0] === 'b') return new TextDecoder().decode((await getBrotli()).decompress(bytes));
+    return new TextDecoder().decode(await pipe(new DecompressionStream('deflate-raw'), bytes));
+  }
+
+  // The iframe stays sandboxed with an opaque origin (no allow-same-origin),
+  // so pasted markup can never touch this page, its storage, or its cookies.
+  // "run scripts" only adds allow-scripts — still isolated from the parent.
+  function render() {
+    const src = inputEl.value;
+    statInput.textContent = `${src.length} chars`;
+    persist();
+
+    const sandbox = ['allow-forms', 'allow-popups', 'allow-modals'];
+    if (scriptsEl.checked) sandbox.push('allow-scripts');
+    frameEl.setAttribute('sandbox', sandbox.join(' '));
+    frameEl.srcdoc = src;
+
+    statusEl.textContent = src.trim()
+      ? (scriptsEl.checked ? 'rendered · scripts enabled' : 'rendered')
+      : 'no input';
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        input: inputEl.value,
+        scripts: scriptsEl.checked,
+        split,
+      }));
+    } catch {}
+  }
+
+  let _t;
+  inputEl.addEventListener('input', () => {
+    clearTimeout(_t);
+    _t = setTimeout(render, 120);
+  });
+  scriptsEl.addEventListener('change', render);
+
+  btnClear.addEventListener('click', () => {
+    inputEl.value = '';
+    render();
+    inputEl.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  btnShare.addEventListener('click', async () => {
+    if (!inputEl.value) { showToast('nothing to share'); return; }
+    try {
+      const packed = await pack(inputEl.value);
+      const url = `${location.origin}${location.pathname}?d=${packed}`
+        + (split !== 50 ? `&s=${split}` : '');
+      await navigator.clipboard.writeText(url);
+      showToast(`link copied · ${url.length} chars`);
+    } catch { showToast('share failed'); }
+  });
+
+  // ---- boot: shared link takes priority over saved draft ----
+  async function boot() {
+    const params = new URLSearchParams(location.search);
+    const sParam = parseInt(params.get('s'), 10);
+    const packed = params.get('d');
+    if (packed) {
+      if (Number.isFinite(sParam)) setSplit(sParam);
+      try {
+        inputEl.value = await unpack(packed);
+        render();
+        return;
+      } catch { showToast('bad share link'); }
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (typeof saved.input === 'string') inputEl.value = saved.input;
+      if (saved.scripts) scriptsEl.checked = true;
+      if (Number.isFinite(saved.split)) setSplit(saved.split);
+    } catch {}
+    render();
+  }
+  boot();
+})();
+</script>
+</body>
+</html>
