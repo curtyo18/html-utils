@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>html-to-pdf · html-utils</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shared.css">
+<style>
+  /* layout: wide viewports get a 2-column split (source | gutter | preview);
+     narrow viewports stack vertically. --cols / --rows carry the drag ratio. */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: var(--cols, 1fr 6px 1fr);
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+  }
+  @media (max-width: 760px) {
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: var(--rows, 1fr 6px 1fr);
+    }
+  }
+  .gutter {
+    background: var(--bg-3);
+    cursor: col-resize;
+    transition: background 120ms;
+  }
+  .gutter:hover, .gutter.dragging { background: var(--accent-dim); }
+  @media (max-width: 760px) { .gutter { cursor: row-resize; } }
+
+  .preview-pane { position: relative; }
+  /* white canvas so pages render (and export) as their author intended,
+     rather than inheriting the app's dark chrome. */
+  #frame {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: #fff;
+  }
+
+  .toolbar .status { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .toolbar .status .warn { color: var(--del); }
+  .toolbar .field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .toolbar .field label { text-transform: uppercase; letter-spacing: 0.06em; }
+  .toolbar select, .toolbar .fname {
+    height: 28px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 0 8px;
+    outline: none;
+    transition: border-color 120ms;
+  }
+  .toolbar select:focus, .toolbar .fname:focus { border-color: var(--border-strong); }
+  .toolbar .fname { width: 120px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="../../index.html"><span class="dot"></span>html-utils</a>
+    <div class="crumb">
+      <a href="../../index.html">home</a><span class="sep">/</span>
+      <span>render</span><span class="sep">/</span>
+      <span class="current">html-to-pdf</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="meta">paste html · save as pdf</div>
+  </header>
+
+  <div class="toolbar">
+    <span class="status" id="status">no input</span>
+    <div class="spacer"></div>
+    <span class="field">
+      <input class="fname" id="fname" spellcheck="false" placeholder="document" value="document">
+      <span>.pdf</span>
+    </span>
+    <span class="field">
+      <label for="format">size</label>
+      <select id="format">
+        <option value="A4">A4</option>
+        <option value="letter">Letter</option>
+        <option value="legal">Legal</option>
+        <option value="A3">A3</option>
+        <option value="A5">A5</option>
+      </select>
+    </span>
+    <span class="field">
+      <label for="orient">orient</label>
+      <select id="orient">
+        <option value="portrait">portrait</option>
+        <option value="landscape">landscape</option>
+      </select>
+    </span>
+    <button class="btn ghost" id="btn-clear">clear</button>
+    <button class="btn primary" id="btn-download">download pdf</button>
+  </div>
+
+  <main class="main">
+    <div class="layout">
+      <section class="pane">
+        <div class="pane-head">
+          <span class="pane-title">html</span>
+          <span class="pane-stat" id="stat-input">0 chars</span>
+        </div>
+        <div class="pane-body">
+          <textarea class="pane-input" id="input" spellcheck="false" placeholder="<h1>Invoice</h1>&#10;<p>Paste or type the <b>HTML</b> you want as a PDF…</p>"></textarea>
+        </div>
+      </section>
+
+      <div class="gutter" id="gutter"></div>
+
+      <section class="pane preview-pane">
+        <div class="pane-head">
+          <span class="pane-title">preview</span>
+        </div>
+        <div class="pane-body">
+          <iframe id="frame" title="preview" sandbox="allow-same-origin allow-modals"></iframe>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">ready</div>
+
+<script>
+(() => {
+  const inputEl    = document.getElementById('input');
+  const frameEl    = document.getElementById('frame');
+  const fnameEl    = document.getElementById('fname');
+  const formatEl   = document.getElementById('format');
+  const orientEl   = document.getElementById('orient');
+  const statusEl   = document.getElementById('status');
+  const statInput  = document.getElementById('stat-input');
+  const btnClear   = document.getElementById('btn-clear');
+  const btnDownload = document.getElementById('btn-download');
+  const toast      = document.getElementById('toast');
+  const layoutEl   = document.querySelector('.layout');
+  const gutterEl   = document.getElementById('gutter');
+
+  const STORAGE_KEY = 'html-utils:html-to-pdf';
+
+  // ---- draggable split (percent of the left/top pane) ----
+  // Pointer capture keeps move events on the gutter even as the cursor passes
+  // over the same-origin iframe, which would otherwise swallow them.
+  const SPLIT_MIN = 15, SPLIT_MAX = 85;
+  let split = 50;
+  function setSplit(p) {
+    split = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(p)));
+    layoutEl.style.setProperty('--cols', `${split}fr 6px ${100 - split}fr`);
+    layoutEl.style.setProperty('--rows', `${split}fr 6px ${100 - split}fr`);
+  }
+  gutterEl.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    gutterEl.setPointerCapture(e.pointerId);
+    gutterEl.classList.add('dragging');
+    const vert = window.matchMedia('(max-width: 760px)').matches;
+    const move = ev => {
+      const r = layoutEl.getBoundingClientRect();
+      setSplit(vert ? (ev.clientY - r.top) / r.height * 100
+                    : (ev.clientX - r.left) / r.width * 100);
+    };
+    const up = () => {
+      gutterEl.classList.remove('dragging');
+      gutterEl.removeEventListener('pointermove', move);
+      gutterEl.removeEventListener('pointerup', up);
+      gutterEl.removeEventListener('pointercancel', up);
+      persist();
+    };
+    gutterEl.addEventListener('pointermove', move);
+    gutterEl.addEventListener('pointerup', up);
+    gutterEl.addEventListener('pointercancel', up);
+  });
+
+  // The preview iframe is sandboxed to a same-origin document with scripts
+  // disabled (allow-modals only lets us open the print dialog): faithful CSS
+  // rendering, no code execution. Export = printing this very document, so the
+  // author's own stylesheets drive the PDF (vector text, no rasterization,
+  // no app-chrome bleed).
+  function render() {
+    const src = inputEl.value;
+    statInput.textContent = `${src.length} chars`;
+    persist();
+    frameEl.srcdoc = src;
+    statusEl.textContent = src.trim() ? 'rendered' : 'no input';
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        input: inputEl.value,
+        fname: fnameEl.value,
+        format: formatEl.value,
+        orient: orientEl.value,
+        split,
+      }));
+    } catch {}
+  }
+
+  let _t;
+  inputEl.addEventListener('input', () => {
+    clearTimeout(_t);
+    _t = setTimeout(render, 150);
+  });
+  fnameEl.addEventListener('input', persist);
+  formatEl.addEventListener('change', persist);
+  orientEl.addEventListener('change', persist);
+
+  btnClear.addEventListener('click', () => {
+    inputEl.value = '';
+    render();
+    inputEl.focus();
+  });
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  // Re-render fresh and wait for the iframe to finish parsing, so we always
+  // print exactly what's in the editor (never a stale, mid-debounce document).
+  function freshRender() {
+    return new Promise(resolve => {
+      let done = false;
+      const fin = () => { if (!done) { done = true; resolve(); } };
+      frameEl.addEventListener('load', fin, { once: true });
+      frameEl.srcdoc = inputEl.value;
+      setTimeout(fin, 300); // fallback if load doesn't fire (unchanged srcdoc)
+    });
+  }
+
+  btnDownload.addEventListener('click', async () => {
+    clearTimeout(_t);
+    btnDownload.disabled = true;
+    statusEl.textContent = 'preparing…';
+    try {
+      await freshRender();
+      const doc = frameEl.contentDocument;
+      const body = doc && doc.body;
+      if (!body || (!body.textContent.trim() && !body.children.length)) {
+        statusEl.textContent = 'no input';
+        showToast('nothing to convert');
+        return;
+      }
+      const name = (fnameEl.value.trim() || 'document').replace(/\.pdf$/i, '');
+      // Paper size / orientation via @page, injected into the preview document
+      // itself. Chrome/Edge seed the "Save as PDF" filename from the title.
+      const head = doc.head || doc.documentElement;
+      let pageStyle = doc.getElementById('__pdf_page');
+      if (!pageStyle) {
+        pageStyle = doc.createElement('style');
+        pageStyle.id = '__pdf_page';
+        head.appendChild(pageStyle);
+      }
+      pageStyle.textContent = `@page { size: ${formatEl.value} ${orientEl.value}; margin: 10mm; }`;
+      doc.title = name;
+
+      statusEl.textContent = 'opening print dialog…';
+      showToast('choose “Save as PDF” to download');
+      frameEl.contentWindow.focus();
+      frameEl.contentWindow.print();
+      statusEl.textContent = 'rendered';
+    } catch (e) {
+      statusEl.innerHTML = '<span class="warn">print failed</span>';
+      showToast(`print failed: ${e && e.message ? e.message : e}`);
+    } finally {
+      btnDownload.disabled = false;
+    }
+  });
+
+  // ---- boot ----
+  function boot() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (typeof saved.input === 'string') inputEl.value = saved.input;
+      if (typeof saved.fname === 'string') fnameEl.value = saved.fname;
+      if (typeof saved.format === 'string') formatEl.value = saved.format;
+      if (typeof saved.orient === 'string') orientEl.value = saved.orient;
+      if (Number.isFinite(saved.split)) setSplit(saved.split);
+    } catch {}
+    render();
+  }
+  boot();
+})();
+</script>
+</body>
+</html>
